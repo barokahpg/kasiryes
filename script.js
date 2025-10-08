@@ -16,7 +16,7 @@ let cart = [];
 // from deploying the Apps Script in Google Sheets.
 // Example: "https://script.google.com/macros/s/AKfycb1234567890/exec"
 // Inserted by request: Use the actual Web App URL provided by the user for Google Apps Script integration
-const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzWuPeXho9I8r9QUWAT89gAnRTkrtuWsNPHfKtTDGeYLuxEA0PZG1JWfAeBzI9HaNse/exec';
+const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby0sIYymZUVJsCDli6jpehKEImLN40hG8h4j6NDK3XrYLtJhqL1lNP6hQ6YHBXobJ8/exec';
 
 
         // Global state for products tab view mode
@@ -2883,12 +2883,19 @@ let productViewMode = 'grid';
  * Export local data (products, sales, debts) to Google Sheets via Apps Script.
  * Converts objects into arrays of values matching the expected sheet columns.
  */
+/*
+ * Kirim data lokal (produk, penjualan, hutang) ke Google Sheets melalui
+ * Apps Script. Permintaan menggunakan Content‑Type `text/plain` untuk
+ * menghindari preflight CORS. Respons tidak dibaca karena browser
+ * memblokirnya untuk domain berbeda, sehingga notifikasi hanya
+ * memberitahu bahwa data telah dikirim.
+ */
 async function exportDataToGoogleSheets() {
     if (!GOOGLE_APPS_SCRIPT_URL || GOOGLE_APPS_SCRIPT_URL.includes('PASTE')) {
         alert('URL Google Apps Script belum diatur. Silakan ganti konstanta GOOGLE_APPS_SCRIPT_URL di script.js.');
         return;
     }
-    // Convert products to array of arrays
+    // Ubah objek produk menjadi array
     const productsRows = products.map(p => [
         p.id,
         p.name,
@@ -2898,7 +2905,6 @@ async function exportDataToGoogleSheets() {
         p.stock,
         p.minStock
     ]);
-    // Convert sales data to array of arrays
     const salesRows = salesData.map(s => [
         s.id,
         JSON.stringify(s.items),
@@ -2912,7 +2918,6 @@ async function exportDataToGoogleSheets() {
         s.timestamp,
         s.type
     ]);
-    // Convert debt data to array of arrays
     const debtsRows = debtData.map(d => [
         d.customerName,
         d.amount,
@@ -2924,13 +2929,12 @@ async function exportDataToGoogleSheets() {
         debts: debtsRows
     };
     try {
-        const response = await fetch(GOOGLE_APPS_SCRIPT_URL, {
+        await fetch(GOOGLE_APPS_SCRIPT_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify(payload)
         });
-        const text = await response.text();
-        alert('Ekspor data selesai: ' + text);
+        alert('Data berhasil dikirim ke Google Sheets. Silakan periksa spreadsheet.');
     } catch (error) {
         alert('Ekspor data gagal: ' + error.message);
     }
@@ -2940,56 +2944,75 @@ async function exportDataToGoogleSheets() {
  * Import data from Google Sheets via Apps Script and update local data.
  * Parses arrays of values back into objects used by the application.
  */
+/*
+ * Ambil data dari Google Sheets melalui Apps Script menggunakan JSONP.
+ * Metode ini menambahkan script tag dinamis ke halaman dengan parameter `callback`.
+ * Apps Script akan memanggil fungsi callback di browser dengan data.
+ */
 async function importDataFromGoogleSheets() {
     if (!GOOGLE_APPS_SCRIPT_URL || GOOGLE_APPS_SCRIPT_URL.includes('PASTE')) {
         alert('URL Google Apps Script belum diatur. Silakan ganti konstanta GOOGLE_APPS_SCRIPT_URL di script.js.');
         return;
     }
-    try {
-        const response = await fetch(GOOGLE_APPS_SCRIPT_URL);
-        const data = await response.json();
-        // Map products
-        if (Array.isArray(data.products)) {
-            products = data.products.map(row => ({
-                id: parseInt(row[0]),
-                name: row[1],
-                price: Number(row[2]),
-                modalPrice: Number(row[3]),
-                barcode: row[4],
-                stock: Number(row[5]),
-                minStock: Number(row[6])
-            }));
-        }
-        // Map sales
-        if (Array.isArray(data.sales)) {
-            salesData = data.sales.map(row => ({
-                id: Number(row[0]),
-                items: JSON.parse(row[1] || '[]'),
-                subtotal: Number(row[2]),
-                discount: Number(row[3]),
-                total: Number(row[4]),
-                paid: row[5] !== '' ? Number(row[5]) : undefined,
-                change: row[6] !== '' ? Number(row[6]) : undefined,
-                debt: row[7] !== '' ? Number(row[7]) : undefined,
-                customerName: row[8] || undefined,
-                timestamp: row[9],
-                type: row[10]
-            }));
-        }
-        // Map debts
-        if (Array.isArray(data.debts)) {
-            debtData = data.debts.map(row => ({
-                customerName: row[0],
-                amount: Number(row[1]),
-                transactions: JSON.parse(row[2] || '[]')
-            }));
-        }
-        saveData();
-        // refresh UI
-        displaySavedProducts();
-        displayScannerProductTable();
-        alert('Impor data berhasil.');
-    } catch (error) {
-        alert('Impor data gagal: ' + error.message);
-    }
+    return new Promise((resolve, reject) => {
+        const callbackName = 'importCallback_' + Date.now();
+        window[callbackName] = function(data) {
+            try {
+                // Map products
+                if (Array.isArray(data.products)) {
+                    products = data.products.map(row => ({
+                        id: parseInt(row[0]),
+                        name: row[1],
+                        price: Number(row[2]),
+                        modalPrice: Number(row[3]),
+                        barcode: row[4],
+                        stock: Number(row[5]),
+                        minStock: Number(row[6])
+                    }));
+                }
+                // Map sales
+                if (Array.isArray(data.sales)) {
+                    salesData = data.sales.map(row => ({
+                        id: Number(row[0]),
+                        items: JSON.parse(row[1] || '[]'),
+                        subtotal: Number(row[2]),
+                        discount: Number(row[3]),
+                        total: Number(row[4]),
+                        paid: row[5] !== '' ? Number(row[5]) : undefined,
+                        change: row[6] !== '' ? Number(row[6]) : undefined,
+                        debt: row[7] !== '' ? Number(row[7]) : undefined,
+                        customerName: row[8] || undefined,
+                        timestamp: row[9],
+                        type: row[10]
+                    }));
+                }
+                // Map debts
+                if (Array.isArray(data.debts)) {
+                    debtData = data.debts.map(row => ({
+                        customerName: row[0],
+                        amount: Number(row[1]),
+                        transactions: JSON.parse(row[2] || '[]')
+                    }));
+                }
+                saveData();
+                // refresh UI
+                displaySavedProducts();
+                displayScannerProductTable();
+                alert('Impor data berhasil.');
+                resolve();
+            } catch (err) {
+                reject(err);
+            } finally {
+                delete window[callbackName];
+            }
+        };
+        const script = document.createElement('script');
+        script.src = GOOGLE_APPS_SCRIPT_URL + '?callback=' + callbackName;
+        script.onerror = function() {
+            delete window[callbackName];
+            alert('Impor data gagal: Gagal memuat data dari Google Sheets.');
+            reject(new Error('Impor data gagal'));
+        };
+        document.body.appendChild(script);
+    });
 }
