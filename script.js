@@ -16,12 +16,22 @@ let cart = [];
 // from deploying the Apps Script in Google Sheets.
 // Example: "https://script.google.com/macros/s/AKfycb1234567890/exec"
 // Inserted by request: Use the actual Web App URL provided by the user for Google Apps Script integration
-const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwN92YgTLVzONF63B8aFhD3P0GogcyVjoax14kBwuw2tjOeHOgnWVPuJMCeq_kdtlCm/exec';
+const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzxLG5-qC3-TmYLWA4lEETTKAKy7YcP2kEjN7xZ9xhdHXMm_2rnK070E7jidJsE0LWW/exec';
 
 
         // Global state for products tab view mode
         // Default to grid layout. Values can be 'grid', 'table' or 'list'
-        async function loadDatabase() {
+// Load initial data from a server-side database when running via Node.js.
+// On static hosts like GitHub Pages, there is no `/api/database` endpoint,
+// so this function returns immediately to avoid network errors.
+async function loadDatabase() {
+    // Detect if the application is served from a static host (e.g., GitHub Pages)
+    // by checking if the current origin matches localhost or a development port.
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (!isLocal) {
+        // Skip loading from /api/database when not running on a local server.
+        return;
+    }
     try {
         const response = await fetch('/api/database');
         if (response.ok) {
