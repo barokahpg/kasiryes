@@ -16,7 +16,7 @@ let cart = [];
 // from deploying the Apps Script in Google Sheets.
 // Example: "https://script.google.com/macros/s/AKfycb1234567890/exec"
 // Inserted by request: Use the actual Web App URL provided by the user for Google Apps Script integration
-const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwN92YgTLVzONF63B8aFhD3P0GogcyVjoax14kBwuw2tjOeHOgnWVPuJMCeq_kdtlCm/exec';
+const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzWuPeXho9I8r9QUWAT89gAnRTkrtuWsNPHfKtTDGeYLuxEA0PZG1JWfAeBzI9HaNse/exec';
 
 
         // Global state for products tab view mode
