@@ -61,6 +61,82 @@ function playBeep() {
 // Expose beep so it can be used from other functions or inline handlers if needed
 window.playBeep = playBeep;
 
+// -----------------------------------------------------------------------------
+// Barcode scan result post‑processing helpers
+//
+// When scanning 1D codes using Quagga or html5‑qrcode, it is common to see
+// occasional misreads (incorrect digits) due to motion blur, lighting, or
+// partial frames.  To mitigate this, we employ a small buffer that collects
+// successive scan results and only accepts a code when the same value has been
+// seen multiple times in a row.  For EAN‑13 barcodes, which include a
+// check‑digit, we further validate the code using the check‑digit algorithm.
+
+// Buffer of the last few scanned codes.  When the same code appears multiple
+// times, it is accepted and the buffer is cleared.  This reduces false
+// positives from transient misreads.
+const _scanBuffer = [];
+
+/**
+ * Compute and verify the check‑digit for an EAN‑13 code.  The last digit of an
+ * EAN‑13 barcode is a checksum calculated from the preceding 12 digits.  This
+ * function returns true if the checksum is valid.  If the code contains any
+ * non‑digits or does not have 13 characters, it returns false.
+ *
+ * @param {string} code A 13‑digit numeric string representing the EAN‑13 code.
+ * @returns {boolean} True if the checksum is valid, false otherwise.
+ */
+function validateEAN13(code) {
+    if (!/^[0-9]{13}$/.test(code)) {
+        return false;
+    }
+    // Convert string to array of integers
+    const digits = code.split('').map(d => parseInt(d, 10));
+    // Compute sum of digits multiplied by weights: 1 for even positions, 3 for odd positions
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+        // Even index (0-based) uses weight 1; odd uses weight 3
+        const weight = (i % 2 === 0) ? 1 : 3;
+        sum += digits[i] * weight;
+    }
+    const computedCheck = (10 - (sum % 10)) % 10;
+    return computedCheck === digits[12];
+}
+
+/**
+ * Process a scanned code by buffering and validating it before taking action.
+ *
+ * This helper aims to improve accuracy by waiting for the same code to be
+ * detected multiple times in succession before passing it to the core handler.
+ * For EAN‑13 codes, it verifies the checksum.  Codes that do not pass
+ * validation or fail to repeat are ignored.
+ *
+ * @param {string} rawCode The raw barcode string returned by the scanner.
+ */
+function processScannedCode(rawCode) {
+    if (!rawCode) return;
+    // Remove whitespace and newline characters
+    const code = rawCode.trim();
+    // Validate EAN‑13 checksum if applicable
+    if (/^[0-9]{13}$/.test(code) && !validateEAN13(code)) {
+        // Invalid checksum: likely a misread; ignore it
+        return;
+    }
+    // Add code to the buffer and keep only the last 5 entries
+    _scanBuffer.push(code);
+    if (_scanBuffer.length > 5) {
+        _scanBuffer.shift();
+    }
+    // Count how many times this code appears in the buffer
+    const occurrences = _scanBuffer.filter(c => c === code).length;
+    // If we have seen this code at least twice, accept it
+    if (occurrences >= 2) {
+        // Clear the buffer to avoid duplicate triggers
+        _scanBuffer.length = 0;
+        // Delegate to the standard handler
+        handleDecodedBarcode(code);
+    }
+}
+
 // URL of your deployed Google Apps Script Web App
 // IMPORTANT: Replace the value below with the Web App URL obtained
 // from deploying the Apps Script in Google Sheets.
@@ -3412,7 +3488,8 @@ async function startCameraScan() {
                 { facingMode: "environment" },
                 config,
                 (decodedText, decodedResult) => {
-                    handleDecodedBarcode(decodedText);
+                    // Use post‑processing to validate and buffer scanned codes
+                    processScannedCode(decodedText);
                 },
                 (errorMessage) => {
                     console.debug('Scan error:', errorMessage);
@@ -3547,7 +3624,8 @@ function startQuaggaScan(targetEl) {
         _onQuaggaDetected = function(result) {
             if (result && result.codeResult && result.codeResult.code) {
                 const code = result.codeResult.code;
-                handleDecodedBarcode(code);
+                // Process the code using our buffer and checksum validation
+                processScannedCode(code);
             }
         };
         Quagga.init(config, function(err) {
