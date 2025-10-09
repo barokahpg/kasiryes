@@ -92,6 +92,12 @@ document.addEventListener('DOMContentLoaded', async function() {
         console.error('Import otomatis gagal:', err);
     }
 
+    // Inisialisasi opsi pemindai untuk perangkat mobile. Ini akan menampilkan
+    // tombol untuk memulai dan menghentikan pemindaian kamera jika perangkat
+    // yang digunakan terdeteksi sebagai ponsel atau tablet. Pada perangkat
+    // desktop, opsi ini tetap disembunyikan.
+    initializeMobileScanner();
+
     /**
      * Global event delegation for search inputs.
      *
@@ -3254,3 +3260,178 @@ window.selectProductFromSuggestion = selectProductFromSuggestion;
 window.handleBarcodeInput = handleBarcodeInput;
 window.searchScannerProducts = searchScannerProducts;
 window.handleScannerTableSearch = handleScannerTableSearch;
+
+// ----------------------------------------------------------
+// Kamera Barcode Scanner (Mobile)
+//
+// Fitur ini memungkinkan pemindaian barcode menggunakan kamera pada perangkat
+// seluler. Ketika fungsi ini diaktifkan, pengguna dapat memilih untuk
+// memulai pemindaian via kamera atau menghentikannya. Hasil scan
+// otomatis akan dimasukkan ke dalam kolom barcode dan produk akan
+// ditambahkan ke keranjang bila ada kecocokan barcode.
+
+/**
+ * Deteksi apakah perangkat yang digunakan adalah ponsel atau tablet.
+ * @returns {boolean}
+ */
+function isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+// Instance dari Html5Qrcode yang sedang aktif untuk pemindaian kamera.
+let cameraScannerInstance = null;
+
+/**
+ * Inisialisasi tampilan dan event handler untuk pemindai kamera di perangkat mobile.
+ * Menampilkan tombol pemindaian jika perangkat adalah mobile dan library
+ * Html5Qrcode tersedia. Jika library belum dimuat (misal offline), maka
+ * tombol akan tetap tersembunyi.
+ */
+function initializeMobileScanner() {
+    const optionsContainer = document.getElementById('mobileScanOptions');
+    const startBtn = document.getElementById('startCameraScanButton');
+    const stopBtn = document.getElementById('stopCameraScanButton');
+
+    // Pastikan elemen-elemen exist sebelum melanjutkan.
+    if (!optionsContainer || !startBtn || !stopBtn) return;
+
+    // Tampilkan opsi hanya jika perangkat mobile.
+    if (isMobileDevice()) {
+        optionsContainer.classList.remove('hidden');
+    } else {
+        // Tidak perlu opsi pada desktop
+        return;
+    }
+
+    // Cek ketersediaan library pemindai. Jika tidak ada, jangan daftarkan event.
+    if (typeof Html5Qrcode === 'undefined') {
+        console.warn('Library html5-qrcode tidak tersedia. Pemindaian kamera tidak akan berfungsi.');
+        return;
+    }
+
+    // Daftarkan event klik untuk memulai pemindaian kamera.
+    startBtn.addEventListener('click', async () => {
+        await startCameraScan();
+    });
+
+    // Daftarkan event klik untuk menghentikan pemindaian kamera.
+    stopBtn.addEventListener('click', async () => {
+        await stopCameraScan();
+    });
+}
+
+/**
+ * Memulai pemindaian barcode menggunakan kamera. Fungsi ini akan meminta izin
+ * kamera, menampilkan stream di dalam elemen dengan id "cameraScanner", dan
+ * memproses hasil scan. Jika pemindaian berhasil, barcode otomatis
+ * dimasukkan ke input barcode dan produk akan ditambahkan ke keranjang.
+ */
+async function startCameraScan() {
+    const startBtn = document.getElementById('startCameraScanButton');
+    const stopBtn = document.getElementById('stopCameraScanButton');
+    const scannerDiv = document.getElementById('cameraScanner');
+    if (!startBtn || !stopBtn || !scannerDiv) return;
+
+    // Jika scanner sudah aktif, jangan memulai lagi.
+    if (cameraScannerInstance) {
+        return;
+    }
+
+    // Pastikan library tersedia.
+    if (typeof Html5Qrcode === 'undefined') {
+        alert('Fitur scan kamera tidak tersedia. Pastikan koneksi internet atau library disertakan.');
+        return;
+    }
+
+    // Tampilkan container dan tombol stop, sembunyikan tombol start
+    scannerDiv.classList.remove('hidden');
+    stopBtn.classList.remove('hidden');
+    startBtn.classList.add('hidden');
+
+    try {
+        // Buat instance pemindai dengan ID container.
+        cameraScannerInstance = new Html5Qrcode('cameraScanner');
+        const config = {
+            fps: 10,
+            // Menentukan ukuran kotak pemindaian (adaptive). Jika qrbox tidak
+            // disediakan, library akan menggunakan deteksi otomatis.
+            // qrbox: 250,
+            // Mendukung format 1D (kode batang) dan 2D. Parameter ini opsional.
+            rememberLastUsedCamera: true
+        };
+
+        // Mulai dengan kamera belakang/default. facingMode: "environment" menggunakan
+        // kamera belakang pada perangkat mobile.
+        await cameraScannerInstance.start(
+            { facingMode: "environment" },
+            config,
+            (decodedText, decodedResult) => {
+                handleDecodedBarcode(decodedText);
+            },
+            (errorMessage) => {
+                // Perangkat masih memindai; abaikan kesalahan antar-frame.
+                console.debug('Scan error:', errorMessage);
+            }
+        );
+    } catch (err) {
+        console.error('Gagal memulai scan kamera:', err);
+        alert('Gagal memulai scan kamera. Pastikan kamera tersedia dan izin diberikan.');
+        // Bersihkan UI jika gagal memulai
+        await stopCameraScan();
+    }
+}
+
+/**
+ * Menangani hasil barcode yang dipindai dari kamera. Fungsi ini akan
+ * memasukkan hasil scan ke input barcode, memproses saran produk, dan jika
+ * barcode persis ada dalam daftar produk maka produk akan langsung
+ * ditambahkan ke keranjang.
+ * @param {string} code
+ */
+function handleDecodedBarcode(code) {
+    const barcodeInput = document.getElementById('barcodeInput');
+    if (!barcodeInput) return;
+    // Masukkan hasil ke input dan tampilkan saran
+    barcodeInput.value = code;
+    showProductSuggestions(code);
+
+    // Jika barcode cocok dengan produk, tambahkan ke keranjang secara otomatis
+    const matchedProduct = products.find(p => p.barcode && p.barcode.toString() === code);
+    if (matchedProduct) {
+        addToCart({ id: matchedProduct.id, name: matchedProduct.name, price: matchedProduct.price, stock: matchedProduct.stock });
+        // Setelah menambahkan ke keranjang, kosongkan input untuk scan berikutnya
+        barcodeInput.value = '';
+        hideProductSuggestions();
+    }
+}
+
+/**
+ * Menghentikan pemindaian kamera dan membersihkan UI. Digunakan ketika
+ * pengguna menekan tombol stop atau ketika pemindaian selesai.
+ */
+async function stopCameraScan() {
+    const startBtn = document.getElementById('startCameraScanButton');
+    const stopBtn = document.getElementById('stopCameraScanButton');
+    const scannerDiv = document.getElementById('cameraScanner');
+    if (!startBtn || !stopBtn || !scannerDiv) return;
+    try {
+        if (cameraScannerInstance) {
+            await cameraScannerInstance.stop();
+            cameraScannerInstance.clear();
+        }
+    } catch (err) {
+        console.error('Gagal menghentikan scan kamera:', err);
+    } finally {
+        cameraScannerInstance = null;
+        // Sembunyikan container dan tombol stop, tampilkan tombol start
+        scannerDiv.classList.add('hidden');
+        stopBtn.classList.add('hidden');
+        startBtn.classList.remove('hidden');
+    }
+}
+
+// Pastikan fungsi tersedia secara global bila dipanggil dari HTML
+window.isMobileDevice = isMobileDevice;
+window.initializeMobileScanner = initializeMobileScanner;
+window.startCameraScan = startCameraScan;
+window.stopCameraScan = stopCameraScan;

@@ -244,10 +244,18 @@
                         <input type="text" id="barcodeInput" placeholder="Ketik atau scan barcode..." 
                                class="w-full mt-3 sm:mt-4 px-3 sm:px-4 py-2 sm:py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-base sm:text-lg"
                                onkeypress="handleBarcodeInput(event)" oninput="showProductSuggestions(this.value)">
-                        
+
                         <!-- Product Suggestions -->
                         <div id="productSuggestions" class="hidden mt-2 bg-white border-2 border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                         </div>
+
+                        <!-- Mobile scanning options (only shown on mobile devices) -->
+                        <div id="mobileScanOptions" class="flex justify-center space-x-3 mt-3 hidden">
+                            <button id="startCameraScanButton" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-semibold active-press">📷 Scan Kamera</button>
+                            <button id="stopCameraScanButton" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-semibold active-press hidden">✖️ Stop Scan</button>
+                        </div>
+                        <!-- Container where the camera stream will be displayed during scanning -->
+                        <div id="cameraScanner" class="mt-3 hidden"></div>
                     </div>
 
                     <!-- Product Table -->
@@ -851,7 +859,14 @@
         </div>
     </div>
 
-    <!-- Load external JavaScript after inline scripts to expose global functions -->
+    <!-- Load external JavaScript libraries -->
+    <!-- Barcode scanner library for camera scanning on mobile devices.
+         Using a CDN-hosted version of html5-qrcode. This provides support for
+         scanning 1D and 2D barcodes via the device camera. If offline usage is
+         required, the library can be bundled locally instead. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+
+    <!-- Load application script after external libraries to ensure symbols are defined -->
     <script src="script.js"></script>
 </body>
 </html>
