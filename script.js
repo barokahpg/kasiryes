@@ -3351,13 +3351,29 @@ async function startCameraScan() {
     try {
         // Buat instance pemindai dengan ID container.
         cameraScannerInstance = new Html5Qrcode('cameraScanner');
+        // Konfigurasi pemindaian. Selain fps dan opsi kamera, kami secara eksplisit
+        // menentukan format barcode yang didukung dan mengaktifkan penggunaan
+        // BarcodeDetector (jika tersedia) untuk meningkatkan akurasi 1D barcode.
         const config = {
             fps: 10,
-            // Menentukan ukuran kotak pemindaian (adaptive). Jika qrbox tidak
-            // disediakan, library akan menggunakan deteksi otomatis.
+            // Jika qrbox diaktifkan, hanya area tertentu yang akan discan.
+            // Biarkan undefined agar library memilih ukuran optimal secara otomatis.
             // qrbox: 250,
-            // Mendukung format 1D (kode batang) dan 2D. Parameter ini opsional.
-            rememberLastUsedCamera: true
+            rememberLastUsedCamera: true,
+            // Aktifkan penggunaan API BarcodeDetector apabila browser mendukung
+            useBarCodeDetectorIfSupported: true,
+            // Batasi pemindaian hanya ke format kode yang kita dukung untuk
+            // meningkatkan performa dan keakuratan, terutama untuk kode batang 1D.
+            formatsToSupport: [
+                Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.CODE_39,
+                Html5QrcodeSupportedFormats.CODE_93,
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.EAN_8,
+                Html5QrcodeSupportedFormats.UPC_A,
+                Html5QrcodeSupportedFormats.UPC_E,
+                Html5QrcodeSupportedFormats.QR_CODE
+            ]
         };
 
         // Mulai dengan kamera belakang/default. facingMode: "environment" menggunakan
