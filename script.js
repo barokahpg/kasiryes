@@ -1383,17 +1383,28 @@ function attachSearchListeners() {
                 };
 
                 products.push(newProduct);
-                // Sync new service product to server database so it persists across devices
-                fetch('/api/products', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(newProduct)
-                }).catch(err => console.error('Failed to sync new service product', err));
+                // Sync new service product to server database so it persists across devices.
+                // Only attempt to sync when running over HTTP/HTTPS; when the app is opened via the file protocol,
+                // the request will fail due to CORS/same-origin restrictions, so we skip it to avoid console errors.
+                if (window.location.protocol.startsWith('http')) {
+                    fetch('/api/products', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(newProduct)
+                    }).catch(err => console.error('Failed to sync new service product', err));
+                }
                 saveData();
                 displaySavedProducts();
                 displayScannerProductTable();
                 closeAddProductModal();
                 alert(`Produk jasa "${name}" berhasil ditambahkan!`);
+                // Auto-export to Google Sheets silently when a new service product is added
+                try {
+                    // Perform export without showing notifications or blocking the UI
+                    exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+                } catch (err) {
+                    console.error('Auto export failed:', err);
+                }
                 return;
             }
 
@@ -1428,11 +1439,14 @@ function attachSearchListeners() {
 
             products.push(newProduct);
             // Sync new product to server database so it persists across devices
-            fetch('/api/products', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newProduct)
-            }).catch(err => console.error('Failed to sync new product', err));
+            // Only attempt to sync when running over HTTP/HTTPS; skip when using the file protocol to avoid CORS errors
+            if (window.location.protocol.startsWith('http')) {
+                fetch('/api/products', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newProduct)
+                }).catch(err => console.error('Failed to sync new product', err));
+            }
             saveData();
             displaySavedProducts();
             displayScannerProductTable();
@@ -1443,6 +1457,12 @@ function attachSearchListeners() {
                 message += `\n🏪 Harga grosir: ${formatCurrency(wholesalePrice)} (min ${wholesaleMinQty} pcs)`;
             }
             alert(message);
+            // Auto-export to Google Sheets silently when a new product is added
+            try {
+                exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+            } catch (err) {
+                console.error('Auto export failed:', err);
+            }
         }
 
         // Edit product functions
@@ -1568,6 +1588,12 @@ function attachSearchListeners() {
                 message += `\n🏪 Harga grosir: ${formatCurrency(wholesalePrice)} (min ${wholesaleMinQty} pcs)`;
             }
             alert(message);
+            // Auto-export to Google Sheets silently when a product is edited
+            try {
+                exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+            } catch (err) {
+                console.error('Auto export failed:', err);
+            }
         }
 
         function deleteProduct() {
@@ -1592,6 +1618,12 @@ function attachSearchListeners() {
                     displayScannerProductTable();
                     closeEditProductModal();
                     alert(`Produk "${product.name}" berhasil dihapus!`);
+                    // Auto-export to Google Sheets silently when a product is deleted
+                    try {
+                        exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+                    } catch (err) {
+                        console.error('Auto export failed:', err);
+                    }
                 }
             }
         }
@@ -1765,6 +1797,12 @@ function attachSearchListeners() {
             }
             displaySavedProducts(); // Refresh product display
             displayScannerProductTable(); // Refresh scanner table
+            // Auto-export to Google Sheets silently after a full payment transaction
+            try {
+                exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+            } catch (err) {
+                console.error('Auto export failed:', err);
+            }
         }
 
         function processPartialPaymentUnified(subtotal, discount, total, paid, customerName) {
@@ -1833,6 +1871,12 @@ function attachSearchListeners() {
             alert(`Transaksi berhasil! Hutang ${customerName}: ${formatCurrency(debt)}`);
             displaySavedProducts(); // Refresh product display
             displayScannerProductTable(); // Refresh scanner table
+            // Auto-export to Google Sheets silently after a partial payment transaction
+            try {
+                exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+            } catch (err) {
+                console.error('Auto export failed:', err);
+            }
         }
 
         function handlePaymentEnter(event) {
@@ -2761,6 +2805,12 @@ function attachSearchListeners() {
                 
                 closeDebtPaymentModal();
                 showReports(); // Refresh the reports modal
+                // Auto-export to Google Sheets silently after a debt payment transaction
+                try {
+                    exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+                } catch (err) {
+                    console.error('Auto export failed:', err);
+                }
             }
         }
 
@@ -2999,14 +3049,25 @@ function attachSearchListeners() {
  * memblokirnya untuk domain berbeda, sehingga notifikasi hanya
  * memberitahu bahwa data telah dikirim.
  */
-async function exportDataToGoogleSheets() {
+// Modified export function to support silent exports.
+// When `silent` is true, the export will run quietly without showing loading
+// indicators or alert popups.  When false (default), the user sees a loading
+// overlay and an alert message on success or failure.
+async function exportDataToGoogleSheets(silent = false) {
     if (!GOOGLE_APPS_SCRIPT_URL || GOOGLE_APPS_SCRIPT_URL.includes('PASTE')) {
-        alert('URL Google Apps Script belum diatur. Silakan ganti konstanta GOOGLE_APPS_SCRIPT_URL di script.js.');
+        if (!silent) {
+            alert('URL Google Apps Script belum diatur. Silakan ganti konstanta GOOGLE_APPS_SCRIPT_URL di script.js.');
+        }
         return;
     }
-    // Tampilkan indikator loading saat proses ekspor dimulai
-    showLoading('Mengekspor data...');
+    // Only show loading overlay when not running silently
+    if (!silent) {
+        showLoading('Mengekspor data...');
+    }
     // Ubah objek produk menjadi array
+    // Include wholesaleMinQty and wholesalePrice when exporting products.
+    // Some products may not have wholesale settings; in that case we export empty strings
+    // to maintain consistent column positions in the spreadsheet.
     const productsRows = products.map(p => [
         p.id,
         p.name,
@@ -3014,7 +3075,9 @@ async function exportDataToGoogleSheets() {
         p.modalPrice,
         p.barcode,
         p.stock,
-        p.minStock
+        p.minStock,
+        p.wholesaleMinQty ?? '',
+        p.wholesalePrice ?? ''
     ]);
     const salesRows = salesData.map(s => [
         s.id,
@@ -3045,12 +3108,20 @@ async function exportDataToGoogleSheets() {
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify(payload)
         });
-        alert('Data berhasil dikirim ke Google Sheets. Silakan periksa spreadsheet.');
+        if (!silent) {
+            alert('Data berhasil dikirim ke Google Sheets. Silakan periksa spreadsheet.');
+        }
     } catch (error) {
-        alert('Ekspor data gagal: ' + error.message);
+        if (!silent) {
+            alert('Ekspor data gagal: ' + error.message);
+        } else {
+            console.error('Silent export failed:', error);
+        }
     } finally {
-        // Sembunyikan indikator loading setelah proses ekspor selesai
-        hideLoading();
+        // Hide the overlay only if it was shown
+        if (!silent) {
+            hideLoading();
+        }
     }
 }
 
@@ -3076,15 +3147,23 @@ async function importDataFromGoogleSheets() {
             try {
                 // Map products
                 if (Array.isArray(data.products)) {
-                    products = data.products.map(row => ({
-                        id: parseInt(row[0]),
-                        name: row[1],
-                        price: Number(row[2]),
-                        modalPrice: Number(row[3]),
-                        barcode: row[4],
-                        stock: Number(row[5]),
-                        minStock: Number(row[6])
-                    }));
+                    products = data.products.map(row => {
+                        const product = {
+                            id: parseInt(row[0]),
+                            name: row[1],
+                            price: Number(row[2]),
+                            modalPrice: Number(row[3]),
+                            barcode: row[4],
+                            stock: Number(row[5]),
+                            minStock: Number(row[6])
+                        };
+                        // Optional wholesale fields may be undefined when older data is imported
+                        const minQty = row[7];
+                        const whPrice = row[8];
+                        product.wholesaleMinQty = (minQty !== undefined && minQty !== '') ? Number(minQty) : null;
+                        product.wholesalePrice = (whPrice !== undefined && whPrice !== '') ? Number(whPrice) : null;
+                        return product;
+                    });
                 }
                 // Map sales
                 if (Array.isArray(data.sales)) {
