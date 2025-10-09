@@ -3147,6 +3147,22 @@ async function importDataFromGoogleSheets() {
             try {
                 // Map products
                 if (Array.isArray(data.products)) {
+                    /**
+                     * Parse a numeric field from the imported data.
+                     * Some backends may serialize missing values as the string "null" or "undefined";
+                     * convert those to null.  Also convert empty strings or undefined to null.
+                     * Return null when parsing fails (e.g. NaN) so downstream UI logic
+                     * treats the value as absent rather than a falsy number.
+                     * @param {any} v
+                     * @returns {number|null}
+                     */
+                    function parseOptionalNumber(v) {
+                        if (v === undefined || v === null || v === '' || v === 'null' || v === 'undefined') {
+                            return null;
+                        }
+                        const num = Number(v);
+                        return Number.isNaN(num) ? null : num;
+                    }
                     products = data.products.map(row => {
                         const product = {
                             id: parseInt(row[0]),
@@ -3157,11 +3173,10 @@ async function importDataFromGoogleSheets() {
                             stock: Number(row[5]),
                             minStock: Number(row[6])
                         };
-                        // Optional wholesale fields may be undefined when older data is imported
-                        const minQty = row[7];
-                        const whPrice = row[8];
-                        product.wholesaleMinQty = (minQty !== undefined && minQty !== '') ? Number(minQty) : null;
-                        product.wholesalePrice = (whPrice !== undefined && whPrice !== '') ? Number(whPrice) : null;
+                        // Optional wholesale fields may be undefined when older data is imported.
+                        // Use parseOptionalNumber to handle strings like "null" or "undefined".
+                        product.wholesaleMinQty = parseOptionalNumber(row[7]);
+                        product.wholesalePrice = parseOptionalNumber(row[8]);
                         return product;
                     });
                 }
