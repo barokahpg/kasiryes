@@ -11,6 +11,27 @@ let cart = [];
         let thermalPrinter = null;
         let printerConnected = false;
 
+// Loading overlay helpers
+// These functions control the display of a full‑screen loading indicator which
+// appears during long‑running operations such as importing or exporting data.
+function showLoading(message) {
+    const overlay = document.getElementById('loadingOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('hidden');
+    const messageEl = overlay.querySelector('.loading-message');
+    if (messageEl) {
+        messageEl.textContent = message || 'Memproses...';
+    }
+}
+function hideLoading() {
+    const overlay = document.getElementById('loadingOverlay');
+    if (!overlay) return;
+    overlay.classList.add('hidden');
+}
+// Expose these helpers globally in case they need to be called from inline attributes
+window.showLoading = showLoading;
+window.hideLoading = hideLoading;
+
 // URL of your deployed Google Apps Script Web App
 // IMPORTANT: Replace the value below with the Web App URL obtained
 // from deploying the Apps Script in Google Sheets.
@@ -48,26 +69,105 @@ async function loadDatabase() {
 let productViewMode = 'grid';
 
         // Initialize
-        document.addEventListener('DOMContentLoaded', async function() {
-            await loadDatabase();
-            loadData();
-            generateSampleTransactions();
-            updateTime();
-            setInterval(updateTime, 1000);
-            displaySavedProducts();
-            displayScannerProductTable();
-            // Ensure the view toggle buttons reflect the default view mode on load
-            updateViewButtons();
-            
-            document.addEventListener('click', function(event) {
-                const suggestionsContainer = document.getElementById('productSuggestions');
-                const barcodeInput = document.getElementById('barcodeInput');
-                
-                if (!suggestionsContainer.contains(event.target) && event.target !== barcodeInput) {
-                    hideProductSuggestions();
-                }
-            });
+document.addEventListener('DOMContentLoaded', async function() {
+    await loadDatabase();
+    loadData();
+    generateSampleTransactions();
+    updateTime();
+    setInterval(updateTime, 1000);
+    displaySavedProducts();
+    displayScannerProductTable();
+    // Ensure the view toggle buttons reflect the default view mode on load
+    updateViewButtons();
+
+    // Attach dynamic search events for barcode and product search inputs
+    attachSearchListeners();
+
+    // Secara otomatis mengimpor data dari Google Sheets pada saat halaman pertama kali dimuat.
+    // Ini memastikan data produk, penjualan, dan hutang di aplikasi selalu sinkron dengan spreadsheet.
+    try {
+        await importDataFromGoogleSheets();
+    } catch (err) {
+        // Jika impor gagal, kesalahan dicetak ke konsol tetapi aplikasi tetap berjalan.
+        console.error('Import otomatis gagal:', err);
+    }
+
+    /**
+     * Global event delegation for search inputs.
+     *
+     * After the import process the DOM elements may be re-rendered, causing
+     * previously attached listeners to be lost.  Rather than attaching
+     * listeners directly to each input every time the DOM is updated, we
+     * delegate the handling of input and keydown events to the document
+     * level.  When an event bubbles up from an element with a specific
+     * ID we run the appropriate handler.  This ensures that search and
+     * suggestion functionality continue to work even after dynamic
+     * updates to the DOM (e.g. import or view mode changes).
+     */
+    document.addEventListener('input', function (event) {
+        const target = event.target;
+        if (!target) return;
+        // Barcode input: show product suggestions while typing
+        if (target.id === 'barcodeInput') {
+            const term = target.value.trim();
+            // Only show suggestions when user is not pressing Enter; Enter is handled in keydown
+            showProductSuggestions(term);
+        }
+        // Product search input: filter saved products in Produk tab
+        if (target.id === 'productSearchInput') {
+            const term = target.value.trim();
+            searchProducts(term);
+        }
+    });
+
+    document.addEventListener('keydown', function (event) {
+        const target = event.target;
+        if (!target) return;
+        // Barcode input: handle Enter to add product by barcode or search term
+        if (target.id === 'barcodeInput') {
+            // Delegate to existing handler for Enter key detection
+            handleBarcodeInput(event);
+        }
+    });
+
+    document.addEventListener('click', function(event) {
+        const suggestionsContainer = document.getElementById('productSuggestions');
+        const barcodeInput = document.getElementById('barcodeInput');
+        
+        if (!suggestionsContainer.contains(event.target) && event.target !== barcodeInput) {
+            hideProductSuggestions();
+        }
+    });
+});
+
+/**
+ * Attach search listeners to relevant inputs (barcode and product search).
+ * This helper ensures that listeners are bound both on initial page load and after
+ * dynamic updates such as data imports. Without reattaching, the inputs may
+ * lose their event handlers when the DOM is rebuilt, causing search and
+ * suggestion features to stop working.  Calling this multiple times is safe;
+ * duplicate listeners will simply result in multiple event invocations.
+ */
+function attachSearchListeners() {
+    // Barcode input: handle Enter for barcode scanning and show suggestions while typing
+    const barcodeInputEl = document.getElementById('barcodeInput');
+    if (barcodeInputEl) {
+        // Ensure the keydown handler is attached for Enter key processing
+        barcodeInputEl.addEventListener('keydown', handleBarcodeInput);
+        // Show suggestions on every input change
+        barcodeInputEl.addEventListener('input', function(e) {
+            const term = e.target.value.trim();
+            showProductSuggestions(term);
         });
+    }
+    // Products tab search input
+    const productSearchEl = document.getElementById('productSearchInput');
+    if (productSearchEl) {
+        productSearchEl.addEventListener('input', function(e) {
+            searchProducts(e.target.value.trim());
+        });
+    }
+}
 
         // Tab switching
         function switchTab(tabName) {
@@ -244,10 +344,10 @@ let productViewMode = 'grid';
 
         // Barcode input handling
         function handleBarcodeInput(event) {
+            // Always capture the current search term
+            const searchTerm = event.target.value.trim();
             if (event.key === 'Enter') {
                 event.preventDefault();
-                const searchTerm = event.target.value.trim();
-                
                 if (searchTerm) {
                     // First check for exact barcode match
                     const exactBarcodeMatch = products.find(p => p.barcode === searchTerm);
@@ -264,10 +364,12 @@ let productViewMode = 'grid';
                     }
                     
                     // If no exact barcode match, check filtered products
-                    const filteredProducts = products.filter(product => 
-                        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        (product.barcode && product.barcode.includes(searchTerm))
-                    );
+                    const filteredProducts = products.filter(product => {
+                        // Ensure name and barcode are strings to avoid TypeError when calling includes()
+                        const name = (product.name || '').toString().toLowerCase();
+                        const barcode = (product.barcode || '').toString();
+                        return name.includes(searchTerm.toLowerCase()) || barcode.includes(searchTerm);
+                    });
                     
                     // If only one product matches, add it to cart automatically
                     if (filteredProducts.length === 1) {
@@ -286,6 +388,9 @@ let productViewMode = 'grid';
                         showProductSuggestions(searchTerm);
                     }
                 }
+            } else {
+                // On every keystroke except Enter, show suggestions instantly
+                showProductSuggestions(searchTerm);
             }
         }
 
@@ -298,10 +403,27 @@ let productViewMode = 'grid';
                 return;
             }
 
-            const filteredProducts = products.filter(product => 
-                product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (product.barcode && product.barcode.includes(searchTerm))
-            );
+            let filteredProducts;
+            try {
+                filteredProducts = products.filter(product => {
+                    const name = (product.name || '').toString().toLowerCase();
+                    const barcode = (product.barcode || '').toString();
+                    return name.includes(searchTerm.toLowerCase()) || barcode.includes(searchTerm);
+                });
+            } catch (err) {
+                // Fallback: load products from localStorage if global products array is unavailable
+                try {
+                    const stored = localStorage.getItem('kasir_products');
+                    const fallbackList = stored ? JSON.parse(stored) : [];
+                    filteredProducts = fallbackList.filter(product => {
+                        const name = (product.name || '').toString().toLowerCase();
+                        const barcode = (product.barcode || '').toString();
+                        return name.includes(searchTerm.toLowerCase()) || barcode.includes(searchTerm);
+                    });
+                } catch (_) {
+                    filteredProducts = [];
+                }
+            }
 
             if (filteredProducts.length === 0) {
                 hideProductSuggestions();
@@ -522,6 +644,8 @@ let productViewMode = 'grid';
             
             if (cart.length === 0) {
                 cartItems.innerHTML = '<div class="text-center text-gray-500 py-8"><p class="text-sm">Keranjang masih kosong</p></div>';
+                // Also update the scanner tab to show empty cart
+                displayScannerProductTable();
                 return;
             }
 
@@ -564,6 +688,9 @@ let productViewMode = 'grid';
                     </div>
                 `;
             }).join('');
+
+            // Update scanner tab list to reflect current cart items
+            displayScannerProductTable();
         }
 
         function updateQuantity(id, change) {
@@ -666,82 +793,39 @@ let productViewMode = 'grid';
         // Scanner product table functions
         function displayScannerProductTable() {
             const tableBody = document.getElementById('scannerProductTable');
+            if (!tableBody) return;
             
-            if (products.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-500">Belum ada produk tersimpan</td></tr>';
+            // Show cart items instead of product list in the scanner tab
+            if (cart.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-500">Keranjang masih kosong</td></tr>';
                 return;
             }
 
-            // Sort products by ID descending (newest first)
-            const sortedProducts = [...products].sort((a, b) => b.id - a.id);
-
-            tableBody.innerHTML = sortedProducts.map(product => {
-                // Special handling for service products
-                if (product.isService || product.price === 0) {
-                    return `
-                        <tr class="border-b border-gray-100 hover:bg-purple-50 bg-purple-25">
-                            <td class="px-3 py-3">
-                                <div class="font-medium text-gray-800">${product.name}</div>
-                                <div class="text-xs text-purple-600 font-semibold">🔧 Produk Jasa</div>
-                            </td>
-                            <td class="px-3 py-3">
-                                <div class="font-mono text-sm text-gray-400">
-                                    Tidak ada
-                                </div>
-                            </td>
-                            <td class="px-3 py-3 text-right">
-                                <div class="font-bold text-purple-600">JASA</div>
-                            </td>
-                            <td class="px-3 py-3 text-center">
-                                <span class="px-2 py-1 rounded-full text-xs font-semibold text-purple-600">
-                                    ∞
-                                </span>
-                                <div class="text-xs text-purple-600 mt-1">UNLIMITED</div>
-                            </td>
-                            <td class="px-3 py-3 text-center">
-                                <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: 999999})" 
-                                        class="px-3 py-1 rounded text-xs font-semibold transition-colors bg-purple-500 hover:bg-purple-600 text-white">
-                                    ➕ Tambah
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                }
-                
-                // Regular product display
-                const stockStatus = product.stock === 0 ? 'critical' : product.stock <= product.minStock ? 'low' : 'ok';
-                const stockClass = stockStatus === 'critical' ? 'text-red-600 font-bold' : 
-                                 stockStatus === 'low' ? 'text-yellow-600 font-semibold' : 'text-green-600';
-                const rowClass = stockStatus === 'critical' ? 'bg-red-50' : 
-                               stockStatus === 'low' ? 'bg-yellow-50' : '';
-                
+            tableBody.innerHTML = cart.map(item => {
+                const isServiceItem = item.isService || item.price === 0;
                 return `
-                    <tr class="border-b border-gray-100 hover:bg-blue-50 ${rowClass}">
+                    <tr class="border-b border-gray-100 hover:bg-blue-50">
                         <td class="px-3 py-3">
-                            <div class="font-medium text-gray-800">${product.name}</div>
-                            <div class="text-xs text-gray-500">Modal: ${formatCurrency(product.modalPrice || 0)}</div>
+                            <div class="font-medium text-gray-800">${item.name}${isServiceItem ? '<span class="bg-purple-500 text-white px-1 rounded text-xs ml-1">🔧 JASA</span>' : ''}</div>
+                            ${isServiceItem && item.description ? `<div class="text-xs text-purple-600 italic mt-1">"${item.description}"</div>` : ''}
                         </td>
-                        <td class="px-3 py-3">
-                            <div class="font-mono text-sm ${product.barcode ? 'text-gray-700' : 'text-gray-400'}">
-                                ${product.barcode || 'Tidak ada'}
-                            </div>
-                        </td>
-                        <td class="px-3 py-3 text-right">
-                            <div class="font-bold text-green-600">${formatCurrency(product.price)}</div>
-                        </td>
+                        <td class="px-3 py-3 text-right">${formatCurrency(item.price)}</td>
                         <td class="px-3 py-3 text-center">
-                            <span class="px-2 py-1 rounded-full text-xs font-semibold ${stockClass}">
-                                ${product.stock}
-                            </span>
-                            ${stockStatus === 'critical' ? '<div class="text-xs text-red-500 mt-1">HABIS</div>' : 
-                              stockStatus === 'low' ? '<div class="text-xs text-yellow-600 mt-1">MENIPIS</div>' : ''}
+                            ${isServiceItem ? '1' : `
+                                <div class="flex items-center justify-center space-x-1">
+                                    <button onclick="updateQuantity(${item.id}, -1)" class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">-</button>
+                                    <input type="number" value="${item.quantity}" min="1" max="999" 
+                                           class="w-12 px-1 py-0 border rounded text-xs text-center" 
+                                           onchange="setQuantity(${item.id}, this.value)"
+                                           onkeypress="handleQuantityKeypress(event, ${item.id})"
+                                           onclick="this.select()">
+                                    <button onclick="updateQuantity(${item.id}, 1)" class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs">+</button>
+                                </div>
+                            `}
                         </td>
+                        <td class="px-3 py-3 text-right">${formatCurrency(item.price * item.quantity)}</td>
                         <td class="px-3 py-3 text-center">
-                            <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: ${product.stock}})" 
-                                    class="px-3 py-1 rounded text-xs font-semibold transition-colors ${product.stock === 0 ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-green-500 hover:bg-green-600 text-white'}"
-                                    ${product.stock === 0 ? 'disabled' : ''}>
-                                ${product.stock === 0 ? '❌ Habis' : '➕ Tambah'}
-                            </button>
+                            <button onclick="removeFromCart('${item.id}')" class="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs">×</button>
                         </td>
                     </tr>
                 `;
@@ -754,10 +838,11 @@ let productViewMode = 'grid';
                 const searchTerm = event.target.value.trim();
                 
                 if (searchTerm) {
-                    const filtered = products.filter(product => 
-                        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        (product.barcode && product.barcode.includes(searchTerm))
-                    );
+                    const filtered = products.filter(product => {
+                        const name = (product.name || '').toString().toLowerCase();
+                        const barcode = (product.barcode || '').toString();
+                        return name.includes(searchTerm.toLowerCase()) || barcode.includes(searchTerm);
+                    });
                     
                     // If only one product matches, add it to cart automatically
                     if (filtered.length === 1) {
@@ -791,10 +876,11 @@ let productViewMode = 'grid';
                 return;
             }
 
-            const filtered = products.filter(product => 
-                product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (product.barcode && product.barcode.includes(searchTerm))
-            );
+            const filtered = products.filter(product => {
+                const name = (product.name || '').toString().toLowerCase();
+                const barcode = (product.barcode || '').toString();
+                return name.includes(searchTerm.toLowerCase()) || barcode.includes(searchTerm);
+            });
 
             if (filtered.length === 0) {
                 tableBody.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-500">Tidak ada produk ditemukan</td></tr>';
@@ -1184,14 +1270,37 @@ let productViewMode = 'grid';
                 }
                 return;
             }
-            // Filter products based on name or barcode
-            const filtered = products.filter(product =>
-                product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (product.barcode && product.barcode.includes(searchTerm))
-            );
-            if (filtered.length === 0) {
+            let filtered;
+            try {
+                // Filter products based on name or barcode
+                filtered = products.filter(product => {
+                    // Coerce properties to strings in case of undefined
+                    const name = (product.name || '').toString().toLowerCase();
+                    const barcode = (product.barcode || '').toString();
+                    return name.includes(searchTerm.toLowerCase()) || barcode.includes(searchTerm);
+                });
+            } catch (err) {
+                // If an error occurs (e.g. products is undefined or product has unexpected structure),
+                // fall back to using the locally saved products from localStorage.  This ensures the
+                // search functionality continues to work even after dynamic updates or import operations
+                // that may replace or unset the global `products` array.
+                try {
+                    const stored = localStorage.getItem('kasir_products');
+                    const fallbackList = stored ? JSON.parse(stored) : [];
+                    filtered = fallbackList.filter(product => {
+                        const name = (product.name || '').toString().toLowerCase();
+                        const barcode = (product.barcode || '').toString();
+                        return name.includes(searchTerm.toLowerCase()) || barcode.includes(searchTerm);
+                    });
+                } catch (_) {
+                    filtered = [];
+                }
+            }
+            if (!Array.isArray(filtered) || filtered.length === 0) {
                 const container = document.getElementById('savedProducts');
-                container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">Tidak ada produk ditemukan</div>';
+                if (container) {
+                    container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">Tidak ada produk ditemukan</div>';
+                }
                 return;
             }
             // Sort filtered products by ID descending (newest first)
@@ -2895,6 +3004,8 @@ async function exportDataToGoogleSheets() {
         alert('URL Google Apps Script belum diatur. Silakan ganti konstanta GOOGLE_APPS_SCRIPT_URL di script.js.');
         return;
     }
+    // Tampilkan indikator loading saat proses ekspor dimulai
+    showLoading('Mengekspor data...');
     // Ubah objek produk menjadi array
     const productsRows = products.map(p => [
         p.id,
@@ -2937,6 +3048,9 @@ async function exportDataToGoogleSheets() {
         alert('Data berhasil dikirim ke Google Sheets. Silakan periksa spreadsheet.');
     } catch (error) {
         alert('Ekspor data gagal: ' + error.message);
+    } finally {
+        // Sembunyikan indikator loading setelah proses ekspor selesai
+        hideLoading();
     }
 }
 
@@ -2954,6 +3068,8 @@ async function importDataFromGoogleSheets() {
         alert('URL Google Apps Script belum diatur. Silakan ganti konstanta GOOGLE_APPS_SCRIPT_URL di script.js.');
         return;
     }
+    // Tampilkan indikator loading saat proses impor dimulai
+    showLoading('Mengimpor data...');
     return new Promise((resolve, reject) => {
         const callbackName = 'importCallback_' + Date.now();
         window[callbackName] = function(data) {
@@ -2998,9 +3114,18 @@ async function importDataFromGoogleSheets() {
                 // refresh UI
                 displaySavedProducts();
                 displayScannerProductTable();
+                // Reattach event listeners to search inputs after the DOM may have been updated
+                // The import process replaces the products array and triggers UI updates, which can cause
+                // event listeners on inputs (e.g., barcode and product searches) to be lost.  Calling
+                // attachSearchListeners() ensures search and suggestion functionality continues to work.
+                attachSearchListeners();
+                // Sembunyikan loading sebelum menampilkan pesan
+                hideLoading();
                 alert('Impor data berhasil.');
                 resolve();
             } catch (err) {
+                // Pastikan overlay disembunyikan jika terjadi error saat memproses data
+                hideLoading();
                 reject(err);
             } finally {
                 delete window[callbackName];
@@ -3009,6 +3134,8 @@ async function importDataFromGoogleSheets() {
         const script = document.createElement('script');
         script.src = GOOGLE_APPS_SCRIPT_URL + '?callback=' + callbackName;
         script.onerror = function() {
+            // Sembunyikan overlay jika gagal memuat script
+            hideLoading();
             delete window[callbackName];
             alert('Impor data gagal: Gagal memuat data dari Google Sheets.');
             reject(new Error('Impor data gagal'));
@@ -3016,3 +3143,20 @@ async function importDataFromGoogleSheets() {
         document.body.appendChild(script);
     });
 }
+
+// Ensure that key functions used by inline HTML attributes are globally
+// accessible.  When functions are declared within this module scope they
+// may not automatically become properties of the window object, which
+// causes inline attributes like `oninput="searchProducts(...)"` or
+// `onkeypress="handleBarcodeInput(event)"` to fail after certain
+// operations (e.g. imports) that reload or replace portions of the DOM.
+// Explicitly assign these functions to the window object so they remain
+// callable from HTML event attributes regardless of module scoping or
+// bundling transformations.
+window.searchProducts = searchProducts;
+window.showProductSuggestions = showProductSuggestions;
+window.hideProductSuggestions = hideProductSuggestions;
+window.selectProductFromSuggestion = selectProductFromSuggestion;
+window.handleBarcodeInput = handleBarcodeInput;
+window.searchScannerProducts = searchScannerProducts;
+window.handleScannerTableSearch = handleScannerTableSearch;

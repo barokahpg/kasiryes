@@ -134,6 +134,21 @@
             background-color: #ef4444;
             color: white;
         }
+
+        /* Loading spinner styles */
+        /* A simple spinner displayed in the loading overlay. The border-top color
+           can be changed to match the application's theme. */
+        .loader {
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #3490dc;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
         
         @media print {
             body * {
@@ -831,6 +846,14 @@
                     Tutup
                 </button>
             </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 flex items-center justify-center bg-gray-800 bg-opacity-50 hidden z-50">
+        <div class="text-center">
+            <div class="loader mx-auto mb-4"></div>
+            <div class="text-white text-lg loading-message">Memproses...</div>
         </div>
     </div>
 
