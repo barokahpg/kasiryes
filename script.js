@@ -32,6 +32,35 @@ function hideLoading() {
 window.showLoading = showLoading;
 window.hideLoading = hideLoading;
 
+//
+// Audio feedback: play a short beep when a barcode is successfully scanned.
+// Some mobile browsers block audio playback unless it originates from a user
+// interaction.  Since the scan is triggered by a button click, the beep
+// should play without issue.  The beep uses the Web Audio API to avoid
+// external audio file dependencies.
+function playBeep() {
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        const ctx = new AudioContext();
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+        oscillator.type = 'sine';
+        oscillator.frequency.value = 880; // frequency in Hz (A5 note)
+        oscillator.start();
+        // ramp down the volume quickly to avoid click noise
+        gain.gain.setValueAtTime(1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+        oscillator.stop(ctx.currentTime + 0.15);
+    } catch (err) {
+        console.warn('Unable to play beep:', err);
+    }
+}
+// Expose beep so it can be used from other functions or inline handlers if needed
+window.playBeep = playBeep;
+
 // URL of your deployed Google Apps Script Web App
 // IMPORTANT: Replace the value below with the Web App URL obtained
 // from deploying the Apps Script in Google Sheets.
@@ -3417,6 +3446,8 @@ function handleDecodedBarcode(code) {
     const matchedProduct = products.find(p => p.barcode && p.barcode.toString() === code);
     if (matchedProduct) {
         addToCart({ id: matchedProduct.id, name: matchedProduct.name, price: matchedProduct.price, stock: matchedProduct.stock });
+        // Play a short beep to provide audible feedback that the barcode has been captured
+        playBeep();
         // Setelah menambahkan ke keranjang, kosongkan input untuk scan berikutnya
         barcodeInput.value = '';
         hideProductSuggestions();
