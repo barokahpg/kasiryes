@@ -3280,6 +3280,10 @@ function isMobileDevice() {
 
 // Instance dari Html5Qrcode yang sedang aktif untuk pemindaian kamera.
 let cameraScannerInstance = null;
+// Flag indicating whether QuaggaJS is currently scanning.  When true,
+// QuaggaJS has been initialized and is processing camera frames.  This flag
+// prevents multiple concurrent scans and helps stop the scanner cleanly.
+let quaggaScannerActive = false;
 
 /**
  * Inisialisasi tampilan dan event handler untuk pemindai kamera di perangkat mobile.
@@ -3333,12 +3337,12 @@ async function startCameraScan() {
     if (!startBtn || !stopBtn || !scannerDiv) return;
 
     // Jika scanner sudah aktif, jangan memulai lagi.
-    if (cameraScannerInstance) {
+    if (cameraScannerInstance || quaggaScannerActive) {
         return;
     }
 
-    // Pastikan library tersedia.
-    if (typeof Html5Qrcode === 'undefined') {
+    // If neither library is available, abort early and inform the user.
+    if (typeof Quagga === 'undefined' && typeof Html5Qrcode === 'undefined') {
         alert('Fitur scan kamera tidak tersedia. Pastikan koneksi internet atau library disertakan.');
         return;
     }
@@ -3349,46 +3353,44 @@ async function startCameraScan() {
     startBtn.classList.add('hidden');
 
     try {
-        // Buat instance pemindai dengan ID container.
-        cameraScannerInstance = new Html5Qrcode('cameraScanner');
-        // Konfigurasi pemindaian. Selain fps dan opsi kamera, kami secara eksplisit
-        // menentukan format barcode yang didukung dan mengaktifkan penggunaan
-        // BarcodeDetector (jika tersedia) untuk meningkatkan akurasi 1D barcode.
-        const config = {
-            fps: 10,
-            // Jika qrbox diaktifkan, hanya area tertentu yang akan discan.
-            // Biarkan undefined agar library memilih ukuran optimal secara otomatis.
-            // qrbox: 250,
-            rememberLastUsedCamera: true,
-            // Aktifkan penggunaan API BarcodeDetector apabila browser mendukung
-            useBarCodeDetectorIfSupported: true,
-            // Batasi pemindaian hanya ke format kode yang kita dukung untuk
-            // meningkatkan performa dan keakuratan, terutama untuk kode batang 1D.
-            formatsToSupport: [
-                Html5QrcodeSupportedFormats.CODE_128,
-                Html5QrcodeSupportedFormats.CODE_39,
-                Html5QrcodeSupportedFormats.CODE_93,
-                Html5QrcodeSupportedFormats.EAN_13,
-                Html5QrcodeSupportedFormats.EAN_8,
-                Html5QrcodeSupportedFormats.UPC_A,
-                Html5QrcodeSupportedFormats.UPC_E,
-                Html5QrcodeSupportedFormats.QR_CODE
-            ]
-        };
-
-        // Mulai dengan kamera belakang/default. facingMode: "environment" menggunakan
-        // kamera belakang pada perangkat mobile.
-        await cameraScannerInstance.start(
-            { facingMode: "environment" },
-            config,
-            (decodedText, decodedResult) => {
-                handleDecodedBarcode(decodedText);
-            },
-            (errorMessage) => {
-                // Perangkat masih memindai; abaikan kesalahan antar-frame.
-                console.debug('Scan error:', errorMessage);
-            }
-        );
+        // Prefer using QuaggaJS for 1D barcode scanning if available.  Quagga
+        // provides better decoding for linear barcodes such as EAN, UPC, and Code
+        // series.  If initialization fails for any reason, fall back to
+        // html5-qrcode.
+        if (typeof Quagga !== 'undefined') {
+            await startQuaggaScan(scannerDiv);
+            return;
+        }
+        // If Quagga is not available, use html5-qrcode (as loaded from CDN).
+        if (typeof Html5Qrcode !== 'undefined') {
+            cameraScannerInstance = new Html5Qrcode('cameraScanner');
+            const config = {
+                fps: 10,
+                rememberLastUsedCamera: true,
+                useBarCodeDetectorIfSupported: true,
+                formatsToSupport: [
+                    Html5QrcodeSupportedFormats.CODE_128,
+                    Html5QrcodeSupportedFormats.CODE_39,
+                    Html5QrcodeSupportedFormats.CODE_93,
+                    Html5QrcodeSupportedFormats.EAN_13,
+                    Html5QrcodeSupportedFormats.EAN_8,
+                    Html5QrcodeSupportedFormats.UPC_A,
+                    Html5QrcodeSupportedFormats.UPC_E,
+                    Html5QrcodeSupportedFormats.QR_CODE
+                ]
+            };
+            await cameraScannerInstance.start(
+                { facingMode: "environment" },
+                config,
+                (decodedText, decodedResult) => {
+                    handleDecodedBarcode(decodedText);
+                },
+                (errorMessage) => {
+                    console.debug('Scan error:', errorMessage);
+                }
+            );
+            return;
+        }
     } catch (err) {
         console.error('Gagal memulai scan kamera:', err);
         alert('Gagal memulai scan kamera. Pastikan kamera tersedia dan izin diberikan.');
@@ -3434,11 +3436,20 @@ async function stopCameraScan() {
         if (cameraScannerInstance) {
             await cameraScannerInstance.stop();
             cameraScannerInstance.clear();
+            cameraScannerInstance = null;
+        }
+        // Stop QuaggaJS scanning if active
+        if (quaggaScannerActive && typeof Quagga !== 'undefined') {
+            // Removing event listener before stopping ensures no further callbacks fire
+            if (_onQuaggaDetected) {
+                Quagga.offDetected(_onQuaggaDetected);
+            }
+            Quagga.stop();
+            quaggaScannerActive = false;
         }
     } catch (err) {
         console.error('Gagal menghentikan scan kamera:', err);
     } finally {
-        cameraScannerInstance = null;
         // Sembunyikan container dan tombol stop, tampilkan tombol start
         scannerDiv.classList.add('hidden');
         stopBtn.classList.add('hidden');
@@ -3451,3 +3462,73 @@ window.isMobileDevice = isMobileDevice;
 window.initializeMobileScanner = initializeMobileScanner;
 window.startCameraScan = startCameraScan;
 window.stopCameraScan = stopCameraScan;
+
+/**
+ * Reference to the currently registered Quagga onDetected callback.
+ * Used to unregister the callback when the scanner is stopped to prevent
+ * memory leaks and duplicate events.
+ * @type {function|null}
+ */
+let _onQuaggaDetected = null;
+
+/**
+ * Memulai pemindaian menggunakan QuaggaJS.  Fungsi ini membungkus inisialisasi
+ * QuaggaJS ke dalam sebuah Promise sehingga dapat digunakan dengan async/await.
+ * @param {HTMLElement} targetEl Elemen DOM tempat video stream ditampilkan.
+ * @returns {Promise<void>} Menyelesaikan ketika Quagga berhasil diinisialisasi.
+ */
+function startQuaggaScan(targetEl) {
+    return new Promise((resolve, reject) => {
+        if (typeof Quagga === 'undefined') {
+            reject(new Error('QuaggaJS tidak tersedia'));
+            return;
+        }
+        // Konfigurasi QuaggaJS untuk menggunakan kamera belakang dan mendekode
+        // berbagai format barcode 1D. Parameter locate=true meningkatkan
+        // kemungkinan menemukan kode di frame meskipun posisinya tidak ideal.
+        const config = {
+            inputStream: {
+                name: 'Live',
+                type: 'LiveStream',
+                target: targetEl,
+                constraints: {
+                    facingMode: 'environment'
+                }
+            },
+            decoder: {
+                readers: [
+                    'ean_reader',
+                    'ean_8_reader',
+                    'code_128_reader',
+                    'code_39_reader',
+                    'code_39_vin_reader',
+                    'upc_reader',
+                    'upc_e_reader',
+                    'codabar_reader',
+                    'i2of5_reader',
+                    '2of5_reader',
+                    'code_93_reader'
+                ]
+            },
+            locate: true,
+            numOfWorkers: navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 4
+        };
+        _onQuaggaDetected = function(result) {
+            if (result && result.codeResult && result.codeResult.code) {
+                const code = result.codeResult.code;
+                handleDecodedBarcode(code);
+            }
+        };
+        Quagga.init(config, function(err) {
+            if (err) {
+                console.error('Quagga init error:', err);
+                reject(err);
+                return;
+            }
+            Quagga.onDetected(_onQuaggaDetected);
+            Quagga.start();
+            quaggaScannerActive = true;
+            resolve();
+        });
+    });
+}

@@ -865,6 +865,12 @@
          scanning 1D and 2D barcodes via the device camera. If offline usage is
          required, the library can be bundled locally instead. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+    <!-- Include QuaggaJS for more robust 1D barcode scanning.
+         This library complements html5-qrcode by providing better support for
+         linear barcodes such as EAN and Code128.  When available, the app
+         will attempt to use Quagga first and fall back to html5-qrcode if
+         initialization fails or if the library is unavailable. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
 
     <!-- Load application script after external libraries to ensure symbols are defined -->
     <script src="script.js"></script>
