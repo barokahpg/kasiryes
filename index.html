@@ -884,12 +884,14 @@
             if (barcodeInput) {
                 barcodeInput.value = barcode;
 
-                // Memicu event 'input' untuk menangani saran produk jika ada
-                barcodeInput.dispatchEvent(new Event('input', { bubbles: true }));
+                // Buat objek event palsu yang menyertakan 'target'
+                const fakeEnterEvent = {
+                    key: 'Enter',
+                    target: barcodeInput,
+                    preventDefault: () => {} // Tambahkan fungsi dummy untuk mencegah error
+                };
 
-                // Memicu fungsi handleBarcodeInput seolah-olah tombol Enter ditekan
-                // untuk langsung mencari produk atau menampilkan modal.
-                const fakeEnterEvent = new KeyboardEvent('keypress', { key: 'Enter' });
+                // Panggil handleBarcodeInput dengan event yang benar
                 handleBarcodeInput(fakeEnterEvent);
             }
         });
