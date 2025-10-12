@@ -877,17 +877,68 @@
     <script>
         // Menangani event barcodeScanned dari aplikasi Android
         window.addEventListener('barcodeScanned', function(e) {
+            const barcode = e.detail;
+            if (!barcode) return;
+
             const barcodeInput = document.getElementById('barcodeInput');
             if (barcodeInput) {
-                // Mengisi field input dengan hasil scan
-                barcodeInput.value = e.detail;
+                barcodeInput.value = barcode;
+            }
 
-                // Memicu fungsi handleBarcodeInput seolah-olah tombol Enter ditekan
-                // untuk langsung mencari produk.
-                const fakeEnterEvent = { key: 'Enter' };
-                handleBarcodeInput(fakeEnterEvent);
+            // Cari produk berdasarkan barcode
+            const product = products.find(p => p.barcode === barcode);
+
+            if (product) {
+                // Jika produk ditemukan, tambahkan ke keranjang
+                addToCart(product.barcode);
+                // Beri feedback visual
+                const productRow = document.querySelector(`#scannerProductTable tr[data-barcode="${product.barcode}"]`);
+                if (productRow) {
+                    productRow.classList.add('pulse-success');
+                    setTimeout(() => productRow.classList.remove('pulse-success'), 600);
+                }
+            } else {
+                // Jika produk tidak ditemukan, tampilkan modal tambah produk
+                showAddProductModal();
+                // Isi otomatis field barcode di modal
+                const newProductBarcode = document.getElementById('newProductBarcode');
+                if (newProductBarcode) {
+                    newProductBarcode.value = barcode;
+                }
             }
         });
+
+        // Interface untuk Android
+        class AndroidInterface {
+            @android.webkit.JavascriptInterface
+            printReceipt(content) {
+                // Fungsi ini akan dipanggil dari JavaScript
+                // dan akan memicu dialog cetak di sisi Android
+                // (Implementasi di MainActivity.kt)
+            }
+        }
+        // Tambahkan interface ke WebView
+        if (window.Android) {
+            window.AndroidInterface = new AndroidInterface();
+        }
+
+        // Modifikasi fungsi processUnifiedPayment untuk memanggil print
+        function processUnifiedPayment() {
+            // ... (logika pembayaran yang sudah ada)
+
+            // Setelah logika pembayaran selesai:
+            const receiptContent = generateReceipt('LUNAS', unifiedCustomerName.value || ''); // Asumsi ada fungsi ini
+            
+            // Panggil fungsi cetak di Android jika tersedia
+            if (window.Android && typeof window.Android.printReceipt === 'function') {
+                window.Android.printReceipt(receiptContent);
+            } else {
+                // Fallback untuk web: buka dialog print browser
+                printContent(receiptContent);
+            }
+
+            // ... (sisa logika setelah pembayaran)
+        }
     </script>
 </body>
 </html>
