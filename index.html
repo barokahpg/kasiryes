@@ -874,5 +874,20 @@
 
     <!-- Load application script after external libraries to ensure symbols are defined -->
     <script src="script.js"></script>
+    <script>
+        // Menangani event barcodeScanned dari aplikasi Android
+        window.addEventListener('barcodeScanned', function(e) {
+            const barcodeInput = document.getElementById('barcodeInput');
+            if (barcodeInput) {
+                // Mengisi field input dengan hasil scan
+                barcodeInput.value = e.detail;
+
+                // Memicu fungsi handleBarcodeInput seolah-olah tombol Enter ditekan
+                // untuk langsung mencari produk.
+                const fakeEnterEvent = { key: 'Enter' };
+                handleBarcodeInput(fakeEnterEvent);
+            }
+        });
+    </script>
 </body>
 </html>
