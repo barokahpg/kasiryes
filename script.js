@@ -493,7 +493,12 @@ function attachSearchListeners() {
                             alert(`Produk "${product.name}" stok habis!`);
                         }
                     } else if (filteredProducts.length === 0) {
-                        alert('Produk tidak ditemukan!');
+                        // Jika benar-benar tidak ditemukan, tampilkan modal tambah produk
+                        showAddProductModal();
+                        // Isi otomatis field barcode di modal
+                        document.getElementById('newProductBarcode').value = searchTerm;
+                        // Fokus ke field nama produk untuk input cepat
+                        document.getElementById('newProductName').focus();
                     } else {
                         // Multiple matches found, keep showing suggestions
                         showProductSuggestions(searchTerm);
@@ -972,7 +977,12 @@ function attachSearchListeners() {
                             alert(`Produk "${product.name}" stok habis!`);
                         }
                     } else if (filtered.length === 0) {
-                        alert('Produk tidak ditemukan!');
+                        // Jika benar-benar tidak ditemukan, tampilkan modal tambah produk
+                        showAddProductModal();
+                        // Isi otomatis field barcode di modal
+                        document.getElementById('newProductBarcode').value = searchTerm;
+                        // Fokus ke field nama produk untuk input cepat
+                        document.getElementById('newProductName').focus();
                     }
                     // If multiple matches, keep showing filtered results
                 }
@@ -1106,7 +1116,7 @@ function attachSearchListeners() {
                 }
                 // Determine stock classes
                 const stockStatusInner = product.stock === 0 ? 'critical' : product.stock <= product.minStock ? 'low' : 'ok';
-                const stockClass = stockStatusInner === 'critical' ? 'stock-critical' : stockStatusInner === 'low' ? 'stock-low' : 'stock-ok';
+                const stockClass = stockStatusInner === 'critical' ? 'text-red-600' : stockStatusInner === 'low' ? 'text-yellow-600' : 'text-green-600';
                 return `
                     <div class="border-2 rounded-lg p-3 hover-lift ${stockClass}">
                         <div class="font-semibold text-sm text-gray-800 truncate mb-1">${product.name}</div>
@@ -1336,7 +1346,7 @@ function attachSearchListeners() {
                 
                 // Regular product display
                 const stockStatus = product.stock === 0 ? 'critical' : product.stock <= product.minStock ? 'low' : 'ok';
-                const stockClass = stockStatus === 'critical' ? 'stock-critical' : stockStatus === 'low' ? 'stock-low' : 'stock-ok';
+                const stockClass = stockStatus === 'critical' ? 'text-red-600' : stockStatus === 'low' ? 'text-yellow-600' : 'text-green-600';
                 
                 return `
                     <div class="border-2 rounded-lg p-3 hover-lift ${stockClass}">
@@ -1354,7 +1364,7 @@ function attachSearchListeners() {
                         
                         <div class="flex space-x-1">
                             <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: ${product.stock}})" 
-                                    class="flex-1 ${product.stock === 0 ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'} text-white px-2 py-1 rounded text-xs font-semibold active-press"
+                                    class="${product.stock === 0 ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'} text-white px-2 py-1 rounded text-xs font-semibold active-press"
                                     ${product.stock === 0 ? 'disabled' : ''}>
                                 ${product.stock === 0 ? '❌' : '➕'}
                             </button>
@@ -1392,7 +1402,7 @@ function attachSearchListeners() {
                 });
             } catch (err) {
                 // If an error occurs (e.g. products is undefined or product has unexpected structure),
-                // fall back to using the locally saved products from localStorage.  This ensures the
+                // fall back to using the locally saved products from localStorage. This ensures the
                 // search functionality continues to work even after dynamic updates or import operations
                 // that may replace or unset the global `products` array.
                 try {
@@ -2042,41 +2052,45 @@ function attachSearchListeners() {
             const paid = parseInt(document.getElementById('partialAmount').value) || 0;
             const difference = total - paid;
             
-            const debtContainer = document.getElementById('debtContainer');
-            const debtLabel = document.getElementById('debtLabel');
-            const debtAmount = document.getElementById('debtAmount');
-            const debtStatus = document.getElementById('debtStatus');
+            const debtRemainingContainer = document.getElementById('debtRemainingContainer');
+            const debtRemainingLabel = document.getElementById('debtRemainingLabel');
+            const debtRemainingAmount = document.getElementById('debtRemainingAmount');
+            const debtRemainingStatus = document.getElementById('debtRemainingStatus');
             
             if (paid === 0) {
                 // No payment entered
-                debtContainer.className = 'bg-red-50 p-4 rounded-lg';
-                debtLabel.textContent = 'Sisa hutang:';
-                debtAmount.textContent = formatCurrency(total);
-                debtAmount.className = 'text-xl font-bold text-red-600';
-                debtStatus.textContent = '';
-            } else if (paid >= total) {
-                // Full payment or overpayment
-                debtContainer.className = 'bg-green-50 p-4 rounded-lg';
-                debtLabel.textContent = 'Status:';
-                debtAmount.textContent = 'LUNAS! ✅';
-                debtAmount.className = 'text-xl font-bold text-green-600';
-                if (paid > total) {
-                    debtStatus.textContent = `💰 Kembalian: ${formatCurrency(paid - total)}`;
-                    debtStatus.className = 'text-xs mt-1 text-green-600 font-medium';
-                } else {
-                    debtStatus.textContent = '🎯 Pembayaran tepat, tidak ada hutang';
-                    debtStatus.className = 'text-xs mt-1 text-green-600 font-medium';
-                }
+                debtRemainingContainer.className = 'bg-red-50 p-4 rounded-lg';
+                debtRemainingLabel.textContent = 'Sisa hutang setelah bayar:';
+                debtRemainingAmount.textContent = formatCurrency(currentDebtAmount);
+                debtRemainingAmount.className = 'text-xl font-bold text-red-600';
+                debtRemainingStatus.textContent = '';
+            } else if (paid > currentDebtAmount) {
+                // Overpayment
+                const overpayment = paymentAmount - currentDebtAmount;
+                debtRemainingContainer.className = 'bg-red-50 p-4 rounded-lg';
+                debtRemainingLabel.textContent = 'Kelebihan bayar:';
+                debtRemainingAmount.textContent = formatCurrency(overpayment);
+                debtRemainingAmount.className = 'text-xl font-bold text-red-600';
+                debtRemainingStatus.textContent = '⚠️ Jumlah bayar melebihi total hutang';
+                debtRemainingStatus.className = 'text-xs mt-1 text-red-600 font-medium';
+            } else if (paid === currentDebtAmount) {
+                // Full payment
+                debtRemainingContainer.className = 'bg-green-50 p-4 rounded-lg';
+                debtRemainingLabel.textContent = 'Status:';
+                debtRemainingAmount.textContent = 'LUNAS! ✅';
+                debtRemainingAmount.className = 'text-xl font-bold text-green-600';
+                debtRemainingStatus.textContent = '🎉 Hutang akan terlunasi sepenuhnya';
+                debtRemainingStatus.className = 'text-xs mt-1 text-green-600 font-medium';
             } else {
                 // Partial payment
                 const debt = difference;
-                const percentage = ((paid / total) * 100).toFixed(1);
-                debtContainer.className = 'bg-orange-50 p-4 rounded-lg';
-                debtLabel.textContent = 'Sisa hutang:';
-                debtAmount.textContent = formatCurrency(debt);
-                debtAmount.className = 'text-xl font-bold text-orange-600';
-                debtStatus.textContent = `💳 Sudah bayar ${percentage}% (${formatCurrency(paid)})`;
-                debtStatus.className = 'text-xs mt-1 text-orange-600 font-medium';
+                const percentage = ((paid / currentDebtAmount) * 100).toFixed(1);
+                debtRemainingContainer.className = 'bg-blue-50 p-4 rounded-lg';
+                debtRemainingLabel.textContent = 'Sisa hutang:';
+                debtRemainingAmount.textContent = formatCurrency(remaining);
+                debtRemainingAmount.className = 'text-xl font-bold text-blue-600';
+                debtRemainingStatus.textContent = `💳 Cicilan ${percentage}% dari total hutang`;
+                debtRemainingStatus.className = 'text-xs mt-1 text-blue-600 font-medium';
             }
         }
 
@@ -2571,6 +2585,7 @@ function attachSearchListeners() {
             tableBody.innerHTML = Object.values(productStats).map(stat => {
                 const profit = stat.revenue - stat.modal;
                 const margin = stat.revenue > 0 ? (profit / stat.revenue * 100) : 0;
+                const roi = stat.modal > 0 ? (profit / stat.modal * 100) : 0;
                 const marginClass = margin > 50 ? 'text-green-600' : margin > 25 ? 'text-yellow-600' : 'text-red-600';
                 
                 return `
@@ -2857,6 +2872,7 @@ function attachSearchListeners() {
                 debtRemainingStatus.className = 'text-xs mt-1 text-green-600 font-medium';
             } else {
                 // Partial payment
+                const debt = remaining;
                 const percentage = ((paymentAmount / currentDebtAmount) * 100).toFixed(1);
                 debtRemainingContainer.className = 'bg-blue-50 p-4 rounded-lg';
                 debtRemainingLabel.textContent = 'Sisa hutang:';
@@ -3141,26 +3157,26 @@ function attachSearchListeners() {
             printToBrowser(receiptContent);
         }
 
-// ===================== Google Sheets Integration =====================
-// These functions integrate the application with a Google Apps Script Web App.
-// Set the constant GOOGLE_APPS_SCRIPT_URL (defined near the top of this file)
-// to your own Web App URL. See google_apps_script_template.gs for the Apps
-// Script code. The export/import functions below convert the application’s
-// in-memory data structures (products, salesData, debtData) into plain
-// arrays of values that can be stored in a spreadsheet, and vice versa.
+        // ===================== Google Sheets Integration =====================
+        // These functions integrate the application with a Google Apps Script Web App.
+        // Set the constant GOOGLE_APPS_SCRIPT_URL (defined near the top of this file)
+        // to your own Web App URL. See google_apps_script_template.gs for the Apps
+        // Script code. The export/import functions below convert the application’s
+        // in-memory data structures (products, salesData, debtData) into plain
+        // arrays of values that can be stored in a spreadsheet, and vice versa.
 
-/**
- * Export local data (products, sales, debts) to Google Sheets via Apps Script.
- * Converts objects into arrays of values matching the expected sheet columns.
- */
-/*
- * Kirim data lokal (produk, penjualan, hutang) ke Google Sheets melalui
- * Apps Script. Permintaan menggunakan Content‑Type `text/plain` untuk
- * menghindari preflight CORS. Respons tidak dibaca karena browser
- * memblokirnya untuk domain berbeda, sehingga notifikasi hanya
- * memberitahu bahwa data telah dikirim.
- */
-// Modified export function to support silent exports.
+        /**
+         * Export local data (products, sales, debts) to Google Sheets via Apps Script.
+         * Converts objects into arrays of values matching the expected sheet columns.
+         */
+        /*
+         * Kirim data lokal (produk, penjualan, hutang) ke Google Sheets melalui
+         * Apps Script. Permintaan menggunakan Content‑Type `text/plain` untuk
+         * menghindari preflight CORS. Respons tidak dibaca karena browser
+         * memblokirnya untuk domain berbeda, sehingga notifikasi hanya
+         * memberitahu bahwa data telah dikirim.
+         */
+        // Modified export function to support silent exports.
 // When `silent` is true, the export will run quietly without showing loading
 // indicators or alert popups.  When false (default), the user sees a loading
 // overlay and an alert message on success or failure.
@@ -3229,22 +3245,6 @@ async function exportDataToGoogleSheets(silent = false) {
             console.error('Silent export failed:', error);
         }
     } finally {
-        // Hide the overlay only if it was shown
-        if (!silent) {
-            hideLoading();
-        }
-    }
-}
-
-/**
- * Import data from Google Sheets via Apps Script and update local data.
- * Parses arrays of values back into objects used by the application.
- */
-/*
- * Ambil data dari Google Sheets melalui Apps Script menggunakan JSONP.
- * Metode ini menambahkan script tag dinamis ke halaman dengan parameter `callback`.
- * Apps Script akan memanggil fungsi callback di browser dengan data.
- */
 async function importDataFromGoogleSheets() {
     if (!GOOGLE_APPS_SCRIPT_URL || GOOGLE_APPS_SCRIPT_URL.includes('PASTE')) {
         alert('URL Google Apps Script belum diatur. Silakan ganti konstanta GOOGLE_APPS_SCRIPT_URL di script.js.');
