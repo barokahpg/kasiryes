@@ -3356,14 +3356,20 @@ function attachSearchListeners() {
             const isPartial = transaction.type === 'partial';
             
             return `
-                <div style="width: 300px; font-family: monospace; font-size: 12px; line-height: 1.2;">
+                <!--
+                    Receipt styles tuned for better readability on 58mm thermal printers.  The base
+                    font-size has been increased and line-height loosened so text prints larger and
+                    clearer on small paper.  Header fonts are also larger to stand out.  Adjust
+                    these values if you use a different paper size or require different scaling.
+                -->
+                <div style="width: 300px; font-family: monospace; font-size: 14px; line-height: 1.3;">
                     <div style="text-align: center; margin-bottom: 10px;">
-                        <div style="font-size: 16px; font-weight: bold;">TOKO BAROKAH</div>
-                        <div style="font-size: 10px;">RT 02 Desa Pematang Gadung</div>
-                        <div style="font-size: 10px;">================================</div>
+                        <div style="font-size: 20px; font-weight: bold;">TOKO BAROKAH</div>
+                        <div style="font-size: 12px;">RT 02 Desa Pematang Gadung</div>
+                        <div style="font-size: 12px;">================================</div>
                     </div>
                     
-                    <div style="margin-bottom: 10px;">
+                    <div style="margin-bottom: 10px; font-size: 14px;">
                         <div>No: ${transaction.id}</div>
                         <div>Tanggal: ${date.toLocaleString('id-ID')}</div>
                         <div>Kasir: Admin</div>
@@ -3371,7 +3377,7 @@ function attachSearchListeners() {
                         <div>================================</div>
                     </div>
                     
-                    <div style="margin-bottom: 10px;">
+                    <div style="margin-bottom: 10px; font-size: 14px;">
                         ${transaction.items.map(item => `
                             <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
                                 <div style="flex: 1;">${item.name}${item.isService ? ' (JASA)' : ''}</div>
@@ -3396,7 +3402,7 @@ function attachSearchListeners() {
                                 <div>-${formatCurrency(transaction.subtotal * transaction.discount / 100)}</div>
                             </div>
                         ` : ''}
-                        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px;">
+                        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 18px;">
                             <div>TOTAL:</div>
                             <div>${formatCurrency(transaction.total)}</div>
                         </div>
@@ -3470,15 +3476,20 @@ function attachSearchListeners() {
 
         function printDebtPaymentReceipt(transaction) {
             const receiptContent = `
-                <div style="width: 300px; font-family: monospace; font-size: 12px; line-height: 1.2;">
+                <!--
+                    Adjusted styling for debt payment receipts to improve legibility on
+                    small 58mm thermal printers.  Larger fonts and increased line
+                    height make the printed text more readable.
+                -->
+                <div style="width: 300px; font-family: monospace; font-size: 14px; line-height: 1.3;">
                     <div style="text-align: center; margin-bottom: 10px;">
-                        <div style="font-size: 16px; font-weight: bold;">TOKO BAROKAH</div>
-                        <div style="font-size: 10px;">RT 02 Desa Pematang Gadung</div>
-                        <div style="font-size: 10px;">================================</div>
-                        <div style="font-size: 14px; font-weight: bold; margin-top: 5px;">BUKTI PEMBAYARAN HUTANG</div>
+                        <div style="font-size: 20px; font-weight: bold;">TOKO BAROKAH</div>
+                        <div style="font-size: 12px;">RT 02 Desa Pematang Gadung</div>
+                        <div style="font-size: 12px;">================================</div>
+                        <div style="font-size: 18px; font-weight: bold; margin-top: 5px;">BUKTI PEMBAYARAN HUTANG</div>
                     </div>
                     
-                    <div style="margin-bottom: 10px;">
+                    <div style="margin-bottom: 10px; font-size: 14px;">
                         <div>No: ${transaction.id}</div>
                         <div>Tanggal: ${new Date(transaction.timestamp).toLocaleString('id-ID')}</div>
                         <div>Kasir: Admin</div>
@@ -3486,8 +3497,8 @@ function attachSearchListeners() {
                         <div>================================</div>
                     </div>
                     
-                    <div style="margin-bottom: 10px;">
-                        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px;">
+                    <div style="margin-bottom: 10px; font-size: 14px;">
+                        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 18px;">
                             <div>PEMBAYARAN HUTANG:</div>
                             <div>${formatCurrency(transaction.amount)}</div>
                         </div>
@@ -3504,7 +3515,7 @@ function attachSearchListeners() {
                         `}
                     </div>
                     
-                    <div style="text-align: center; margin-top: 15px; font-size: 10px;">
+                    <div style="text-align: center; margin-top: 15px; font-size: 12px;">
                         <div>Terima kasih atas pembayaran Anda</div>
                         <div style="margin-top: 10px;">================================</div>
                     </div>
