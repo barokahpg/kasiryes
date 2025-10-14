@@ -3781,36 +3781,11 @@ let quaggaScannerActive = false;
  * tombol akan tetap tersembunyi.
  */
 function initializeMobileScanner() {
-    const optionsContainer = document.getElementById('mobileScanOptions');
-    const startBtn = document.getElementById('startCameraScanButton');
-    const stopBtn = document.getElementById('stopCameraScanButton');
-
-    // Pastikan elemen-elemen exist sebelum melanjutkan.
-    if (!optionsContainer || !startBtn || !stopBtn) return;
-
-    // Tampilkan opsi hanya jika perangkat mobile.
-    if (isMobileDevice()) {
-        optionsContainer.classList.remove('hidden');
-    } else {
-        // Tidak perlu opsi pada desktop
-        return;
-    }
-
-    // Cek ketersediaan library pemindai. Jika tidak ada, jangan daftarkan event.
-    if (typeof Html5Qrcode === 'undefined') {
-        console.warn('Library html5-qrcode tidak tersedia. Pemindaian kamera tidak akan berfungsi.');
-        return;
-    }
-
-    // Daftarkan event klik untuk memulai pemindaian kamera.
-    startBtn.addEventListener('click', async () => {
-        await startCameraScan();
-    });
-
-    // Daftarkan event klik untuk menghentikan pemindaian kamera.
-    stopBtn.addEventListener('click', async () => {
-        await stopCameraScan();
-    });
+    // Pemindaian kamera di ponsel telah dinonaktifkan.  Fungsi ini dibiarkan
+    // kosong agar opsi kamera tidak ditampilkan dan event handler tidak
+    // didaftarkan.  USB/Bluetooth barcode scanner tetap berfungsi melalui
+    // pemindai global.
+    return;
 }
 
 /**
