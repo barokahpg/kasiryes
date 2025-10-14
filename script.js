@@ -173,6 +173,215 @@ async function loadDatabase() {
 
 let productViewMode = 'grid';
 
+// Index of the currently highlighted product suggestion when using keyboard navigation.
+// A value of -1 means no suggestion is selected.  This is reset whenever
+// suggestions are shown or hidden.  Arrow key presses will update this value
+// and visually highlight the corresponding suggestion element.
+let currentSuggestionIndex = -1;
+
+// Flag controlling whether the global USB barcode scanner listener is active.
+// The initial value is true so that scanning works by default.  Toggled via
+// a button in the header.  When false, keystrokes are not interpreted as
+// barcode scans and only the barcode input field handles scanning.
+let globalScannerEnabled = true;
+
+// -----------------------------------------------------------------------------
+// Table sorting state
+//
+// When displaying products in table view, we allow the user to sort by
+// clicking column headers (name, price, stock).  This section defines
+// variables to keep track of the current list being displayed and the
+// direction of sorting for each sortable column.  The sort state toggles
+// between 'asc' and 'desc' each time a header is clicked.
+
+// Holds the array of products currently rendered in the table.  It is
+// initialised in displayProductsTable() so that sortTableBy() can sort the
+// same list without re-fetching or re-filtering.  When a search filter is
+// applied, this list is replaced with the filtered results.
+let currentTableList = [];
+
+// Stores the sort direction for each sortable column.  The value toggles
+// between 'asc' and 'desc' when a header is clicked.  Default values set
+// initial order (name ascending, price descending, stock descending).
+const tableSortState = {
+    name: 'asc',
+    price: 'desc',
+    stock: 'desc'
+};
+
+/**
+ * Sort the current table list by the specified column.  Toggling the sort
+ * direction each time a header is clicked.  After sorting, the table is
+ * re-rendered via displayProductsTable().  Columns supported: 'name',
+ * 'price', 'stock'.
+ *
+ * @param {string} column The column key to sort by.
+ */
+function sortTableBy(column) {
+    if (!currentTableList || !Array.isArray(currentTableList)) {
+        return;
+    }
+    // Toggle sort direction for the column
+    if (tableSortState[column] === 'asc') {
+        tableSortState[column] = 'desc';
+    } else {
+        tableSortState[column] = 'asc';
+    }
+    const direction = tableSortState[column];
+    currentTableList.sort((a, b) => {
+        let valA;
+        let valB;
+        if (column === 'name') {
+            valA = (a.name || '').toString().toLowerCase();
+            valB = (b.name || '').toString().toLowerCase();
+            if (valA < valB) return direction === 'asc' ? -1 : 1;
+            if (valA > valB) return direction === 'asc' ? 1 : -1;
+            return 0;
+        }
+        if (column === 'price') {
+            valA = a.price || 0;
+            valB = b.price || 0;
+        } else if (column === 'stock') {
+            // Service products with unlimited stock are treated as 0 for sorting
+            valA = (a.isService || a.price === 0) ? 0 : (a.stock || 0);
+            valB = (b.isService || b.price === 0) ? 0 : (b.stock || 0);
+        } else {
+            return 0;
+        }
+        return direction === 'asc' ? valA - valB : valB - valA;
+    });
+    // Re-render the table with the sorted list
+    displayProductsTable(currentTableList);
+}
+
+// -----------------------------------------------------------------------------
+// Global USB barcode scanner handling
+//
+// Many USB barcode scanners emulate a keyboard by sending a rapid sequence
+// of keystrokes that represent the barcode digits followed by an Enter key.
+// This helper listens for keydown events at the document level, accumulates
+// characters into a buffer, and when the Enter key is received within a
+// short time window it treats the buffer as a scanned barcode.  This allows
+// barcode scanning to work regardless of which input field currently has
+// focus or which tab is active.  If the scanned code matches an existing
+// product, it is immediately added to the cart.  Otherwise, a new product
+// modal is shown with the barcode prefilled so the operator can quickly
+// create a new item.
+
+// Time (in milliseconds) allowed between the first and last keystroke of a
+// barcode scan.  If the total duration exceeds this threshold the input
+// sequence is considered manual typing rather than a barcode scan.
+// Adjusted threshold: allow up to 1000ms between first and last keystroke
+// to accommodate slower synthetic input sequences during testing or when the
+// scanner introduces slight delays.  In production a lower value (e.g. 500ms)
+// may be preferable.
+const BARCODE_SCAN_DURATION_THRESHOLD = 1000;
+
+/**
+ * Initialize the global barcode scanner listener.  This attaches a keydown
+ * handler to the document that collects keystrokes into a buffer and
+ * dispatches the scanned barcode when the Enter key is pressed within the
+ * configured time threshold.  Non‑alphanumeric keys reset the buffer.
+ */
+function initGlobalBarcodeScanner() {
+    let scanBuffer = '';
+    let scanStartTime = null;
+    document.addEventListener('keydown', function(event) {
+        // If the global scanner is disabled, do nothing.  This allows the
+        // operator to type freely without triggering scan actions when the
+        // standby mode is turned off via the toggle button.
+        if (!globalScannerEnabled) {
+            return;
+        }
+        // Do not treat keystrokes inside the primary barcode search input as a
+        // hardware scan.  The barcode input has its own handler (handleBarcodeInput)
+        // that performs lookup and cart actions appropriately.  Without this
+        // check, typing a product name in the search field followed by Enter
+        // would inadvertently trigger the global scanner logic and open the
+        // "Tambah Produk" modal when the name does not match an exact barcode.
+        const target = event.target;
+        if (target && target.id === 'barcodeInput') {
+            return;
+        }
+        // Ignore modifier keys and system shortcuts
+        if (event.altKey || event.ctrlKey || event.metaKey) {
+            return;
+        }
+        const key = event.key;
+        const now = Date.now();
+        // Reset the buffer if a long pause has occurred
+        if (scanStartTime && now - scanStartTime > BARCODE_SCAN_DURATION_THRESHOLD) {
+            scanBuffer = '';
+            scanStartTime = null;
+        }
+        // When Enter is pressed, evaluate the buffer
+        if (key === 'Enter') {
+            if (scanBuffer.length > 0) {
+                // If the sequence was entered quickly, treat it as a scan
+                const duration = scanStartTime ? (now - scanStartTime) : 0;
+                if (duration > 0 && duration <= BARCODE_SCAN_DURATION_THRESHOLD) {
+                    const scannedCode = scanBuffer;
+                    scanBuffer = '';
+                    scanStartTime = null;
+                    // Handle the scanned code globally
+                    handleGlobalScannedBarcode(scannedCode);
+                    // Prevent default behaviour to avoid triggering form submissions
+                    event.preventDefault();
+                    return;
+                }
+            }
+            // Always reset the buffer when Enter is pressed
+            scanBuffer = '';
+            scanStartTime = null;
+            return;
+        }
+        // Only accept single alphanumeric characters as part of the barcode
+        if (key && key.length === 1 && /^[A-Za-z0-9]$/.test(key)) {
+            if (!scanStartTime) {
+                scanStartTime = now;
+            }
+            scanBuffer += key;
+            return;
+        }
+        // Any other key resets the buffer
+        scanBuffer = '';
+        scanStartTime = null;
+    });
+}
+
+/**
+ * Process a globally scanned barcode.  If the barcode matches an existing
+ * product, add it directly to the cart and play a beep.  If no match is
+ * found, open the new product modal and prefill the barcode field so the
+ * operator can quickly add the product to the catalog.
+ *
+ * @param {string} code The scanned barcode string.
+ */
+function handleGlobalScannedBarcode(code) {
+    const trimmed = (code || '').trim();
+    if (!trimmed) return;
+    // Attempt to find the product by barcode
+    const matchedProduct = products.find(p => p.barcode && p.barcode.toString() === trimmed);
+    if (matchedProduct) {
+        // Only add if stock is available
+        if (matchedProduct.stock > 0) {
+            addToCart({ id: matchedProduct.id, name: matchedProduct.name, price: matchedProduct.price, stock: matchedProduct.stock });
+            playBeep();
+        } else {
+            alert(`Produk "${matchedProduct.name}" stok habis!`);
+        }
+    } else {
+        // If no product matches, open the add product modal with barcode prefilled
+        showAddProductModal();
+        const barcodeInput = document.getElementById('newProductBarcode');
+        if (barcodeInput) {
+            barcodeInput.value = trimmed;
+        }
+        // Inform the operator that a new product needs to be added
+        alert('Produk belum terdaftar. Silakan isi detail produk baru.');
+    }
+}
+
         // Initialize
 document.addEventListener('DOMContentLoaded', async function() {
     await loadDatabase();
@@ -202,6 +411,16 @@ document.addEventListener('DOMContentLoaded', async function() {
     // yang digunakan terdeteksi sebagai ponsel atau tablet. Pada perangkat
     // desktop, opsi ini tetap disembunyikan.
     initializeMobileScanner();
+
+    // Mulai pemindai barcode global untuk pemindai USB.  Ini memastikan aplikasi
+    // selalu siap menerima input dari pemindai, baik ketika field scan aktif
+    // maupun tidak, dan bahkan saat berada di tab selain tab pemindai.  Pastikan
+    // fungsi initGlobalBarcodeScanner() telah terdefinisi sebelum panggilan ini.
+    initGlobalBarcodeScanner();
+
+    // Perbarui tampilan tombol toggle scan berdasarkan status awal.  Ini memastikan
+    // pengguna melihat status ON/OFF yang benar setelah memuat halaman.
+    updateScanToggleButton();
 
     /**
      * Global event delegation for search inputs.
@@ -234,9 +453,13 @@ document.addEventListener('DOMContentLoaded', async function() {
     document.addEventListener('keydown', function (event) {
         const target = event.target;
         if (!target) return;
-        // Barcode input: handle Enter to add product by barcode or search term
-        if (target.id === 'barcodeInput') {
-            // Delegate to existing handler for Enter key detection
+        // If the keypress originated from the barcode input, only delegate
+        // Enter key events.  Arrow keys and other keys are handled by the
+        // element‑specific listener attached in attachSearchListeners().  Without
+        // this guard, handleBarcodeInput would be called twice (both via this
+        // delegation and the element listener), causing suggestion navigation
+        // indexes to increment unexpectedly.
+        if (target.id === 'barcodeInput' && event.key === 'Enter') {
             handleBarcodeInput(event);
         }
     });
@@ -260,23 +483,34 @@ document.addEventListener('DOMContentLoaded', async function() {
  * duplicate listeners will simply result in multiple event invocations.
  */
 function attachSearchListeners() {
-    // Barcode input: handle Enter for barcode scanning and show suggestions while typing
+    // Barcode input: handle arrow navigation, Enter and suggestion filtering.
+    // To avoid attaching duplicate listeners when the DOM is refreshed (e.g.
+    // after importing data or re-rendering views), check a custom property on
+    // the element before registering new handlers. Once a listener has been
+    // attached, set the `_hasBarcodeListeners` flag to true so subsequent
+    // calls to attachSearchListeners() will skip adding additional listeners.
+    // This prevents the handleBarcodeInput function from being invoked
+    // multiple times on each keydown event, which would otherwise cause
+    // the highlighted suggestion index to increment unexpectedly.
     const barcodeInputEl = document.getElementById('barcodeInput');
-    if (barcodeInputEl) {
-        // Ensure the keydown handler is attached for Enter key processing
+    if (barcodeInputEl && !barcodeInputEl._hasBarcodeListeners) {
+        // Attach keydown listener for arrow keys and Enter navigation
         barcodeInputEl.addEventListener('keydown', handleBarcodeInput);
-        // Show suggestions on every input change
+        // Attach input listener to show suggestions as the user types
         barcodeInputEl.addEventListener('input', function(e) {
             const term = e.target.value.trim();
             showProductSuggestions(term);
         });
+        // Mark that listeners have been attached to avoid duplicates
+        barcodeInputEl._hasBarcodeListeners = true;
     }
-    // Products tab search input
+    // Products tab search input: attach its listener only once
     const productSearchEl = document.getElementById('productSearchInput');
-    if (productSearchEl) {
+    if (productSearchEl && !productSearchEl._hasProductSearchListener) {
         productSearchEl.addEventListener('input', function(e) {
             searchProducts(e.target.value.trim());
         });
+        productSearchEl._hasProductSearchListener = true;
     }
 }
 
@@ -457,6 +691,46 @@ function attachSearchListeners() {
         function handleBarcodeInput(event) {
             // Always capture the current search term
             const searchTerm = event.target.value.trim();
+            // Keyboard navigation: handle arrow keys to navigate suggestions
+            const suggestionsContainer = document.getElementById('productSuggestions');
+            const suggestions = suggestionsContainer ? suggestionsContainer.children : [];
+            if (event.key === 'ArrowDown' && suggestions.length > 0) {
+                // Move selection down; wrap to top when reaching the end
+                event.preventDefault();
+                if (currentSuggestionIndex < suggestions.length - 1) {
+                    currentSuggestionIndex++;
+                } else {
+                    currentSuggestionIndex = 0;
+                }
+                highlightSuggestionAtIndex(currentSuggestionIndex);
+                return;
+            }
+            if (event.key === 'ArrowUp' && suggestions.length > 0) {
+                // Move selection up; wrap to bottom when reaching the start
+                event.preventDefault();
+                if (currentSuggestionIndex > 0) {
+                    currentSuggestionIndex--;
+                } else {
+                    currentSuggestionIndex = suggestions.length - 1;
+                }
+                highlightSuggestionAtIndex(currentSuggestionIndex);
+                return;
+            }
+            // If Enter is pressed and a suggestion is highlighted, select it
+            if (event.key === 'Enter' && suggestions.length > 0 && currentSuggestionIndex >= 0) {
+                event.preventDefault();
+                const selectedEl = suggestions[currentSuggestionIndex];
+                const productIdAttr = selectedEl ? selectedEl.getAttribute('data-product-id') : null;
+                const productId = productIdAttr ? parseInt(productIdAttr, 10) : null;
+                if (productId) {
+                    selectProductFromSuggestion(productId);
+                }
+                currentSuggestionIndex = -1;
+                hideProductSuggestions();
+                // Clear input to prepare for next scan or search
+                event.target.value = '';
+                return;
+            }
             if (event.key === 'Enter') {
                 event.preventDefault();
                 if (searchTerm) {
@@ -549,6 +823,7 @@ function attachSearchListeners() {
                 
                 return `
                     <div class="p-3 hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-b-0 ${product.stock === 0 ? 'opacity-50' : ''}"
+                         data-product-id="${product.id}"
                          onclick="selectProductFromSuggestion(${product.id})">
                         <div class="flex justify-between items-center">
                             <div class="flex-1">
@@ -568,11 +843,53 @@ function attachSearchListeners() {
                 `;
             }).join('');
 
+            // Reset highlighted suggestion index and clear previous highlights
+            currentSuggestionIndex = -1;
+            clearSuggestionHighlights();
             suggestionsContainer.classList.remove('hidden');
         }
 
+    /**
+     * Remove highlight from all suggestion items.  When the suggestion index changes
+     * (via arrow keys) or when suggestions are refreshed, this function clears
+     * any previously applied highlight class.  The highlight class used here
+     * matches the hover colour (bg‑green‑100) defined in Tailwind CSS.
+     */
+    function clearSuggestionHighlights() {
+        const container = document.getElementById('productSuggestions');
+        if (!container) return;
+        const items = container.children;
+        for (let i = 0; i < items.length; i++) {
+            items[i].classList.remove('bg-green-100');
+        }
+    }
+
+    /**
+     * Highlight the suggestion item at the given index.  Adds the
+     * bg‑green‑100 class to the selected item and removes it from others.
+     * If the index is out of range, no highlight is applied.  This helper
+     * depends on clearSuggestionHighlights() being defined in the same scope.
+     *
+     * @param {number} index The zero‑based index of the suggestion to highlight.
+     */
+    function highlightSuggestionAtIndex(index) {
+        const container = document.getElementById('productSuggestions');
+        if (!container) return;
+        const items = container.children;
+        clearSuggestionHighlights();
+        if (index >= 0 && index < items.length) {
+            items[index].classList.add('bg-green-100');
+        }
+    }
+
         function hideProductSuggestions() {
-            document.getElementById('productSuggestions').classList.add('hidden');
+            const container = document.getElementById('productSuggestions');
+            if (container) {
+                container.classList.add('hidden');
+            }
+            // Reset selection index and remove any highlights when hiding suggestions
+            currentSuggestionIndex = -1;
+            clearSuggestionHighlights();
         }
 
         function selectProductFromSuggestion(productId) {
@@ -602,16 +919,17 @@ function attachSearchListeners() {
             }
 
             const existingItem = cart.find(item => item.id === product.id);
-            
+
             if (existingItem) {
+                // If item already exists in the cart, update its quantity and
+                // wholesale pricing then move it to the top of the cart array
                 const newQuantity = existingItem.quantity + quantity;
                 if (product.stock < newQuantity) {
                     alert(`Stok tidak mencukupi! Stok tersedia: ${product.stock}`);
                     return;
                 }
                 existingItem.quantity = newQuantity;
-                
-                // Update price based on wholesale pricing
+                // Update price based on wholesale pricing rules
                 const fullProduct = products.find(p => p.id === product.id);
                 if (fullProduct && fullProduct.wholesaleMinQty && fullProduct.wholesalePrice) {
                     if (existingItem.quantity >= fullProduct.wholesaleMinQty) {
@@ -622,18 +940,23 @@ function attachSearchListeners() {
                         existingItem.isWholesale = false;
                     }
                 }
+                // Move the updated item to the top of the cart to reflect recency
+                const index = cart.indexOf(existingItem);
+                if (index > 0) {
+                    cart.splice(index, 1);
+                    cart.unshift(existingItem);
+                }
             } else {
-                // Check if quantity qualifies for wholesale pricing
+                // New item: calculate wholesale pricing if applicable
                 const fullProduct = products.find(p => p.id === product.id);
                 let itemPrice = product.price;
                 let isWholesale = false;
-                
                 if (fullProduct && fullProduct.wholesaleMinQty && fullProduct.wholesalePrice && quantity >= fullProduct.wholesaleMinQty) {
                     itemPrice = fullProduct.wholesalePrice;
                     isWholesale = true;
                 }
-                
-                cart.push({
+                // Add new item to the beginning of the cart so it appears at the top of the list
+                cart.unshift({
                     id: product.id,
                     name: product.name,
                     price: itemPrice,
@@ -899,7 +1222,36 @@ function attachSearchListeners() {
             
             document.getElementById('subtotal').textContent = formatCurrency(subtotal);
             document.getElementById('total').textContent = formatCurrency(total);
+
+    // Perbarui notifikasi total bayar di daftar produk
+    updateTotalPayNotice();
         }
+
+    /**
+     * Menampilkan atau menyembunyikan notifikasi total bayar pada tab Scanner.
+     * Jika keranjang kosong maka elemen disembunyikan. Jika ada item,
+     * total setelah diskon akan ditampilkan dalam format mata uang.
+     */
+    function updateTotalPayNotice() {
+        const notice = document.getElementById('totalPayNotice');
+        if (!notice) return;
+        const amountSpan = document.getElementById('totalPayAmount');
+        // Hitung subtotal dan total seperti di updateTotal()
+        const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const discountInput = document.getElementById('discountInput');
+        const discount = discountInput ? parseInt(discountInput.value) || 0 : 0;
+        const total = subtotal - (subtotal * discount / 100);
+        if (cart.length === 0) {
+            // Sembunyikan pemberitahuan bila keranjang kosong
+            notice.classList.add('hidden');
+        } else {
+            // Tampilkan total bayar
+            if (amountSpan) {
+                amountSpan.textContent = formatCurrency(total);
+            }
+            notice.classList.remove('hidden');
+        }
+    }
 
         // Scanner product table functions
         function displayScannerProductTable() {
@@ -917,26 +1269,27 @@ function attachSearchListeners() {
                 return `
                     <tr class="border-b border-gray-100 hover:bg-blue-50">
                         <td class="px-3 py-3">
-                            <div class="font-medium text-gray-800">${item.name}${isServiceItem ? '<span class="bg-purple-500 text-white px-1 rounded text-xs ml-1">🔧 JASA</span>' : ''}</div>
+                            <!-- Tampilkan nama produk dengan ukuran lebih besar agar seimbang dengan notifikasi Total Bayar -->
+                            <div class="font-bold text-gray-800 text-lg">${item.name}${isServiceItem ? '<span class="bg-purple-500 text-white px-1 rounded text-xs ml-1">🔧 JASA</span>' : ''}</div>
                             ${isServiceItem && item.description ? `<div class="text-xs text-purple-600 italic mt-1">"${item.description}"</div>` : ''}
                         </td>
-                        <td class="px-3 py-3 text-right">${formatCurrency(item.price)}</td>
-                        <td class="px-3 py-3 text-center">
+                        <td class="px-3 py-3 text-right text-lg">${formatCurrency(item.price)}</td>
+                        <td class="px-3 py-3 text-center text-lg">
                             ${isServiceItem ? '1' : `
                                 <div class="flex items-center justify-center space-x-1">
-                                    <button onclick="updateQuantity(${item.id}, -1)" class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">-</button>
+                                    <button onclick="updateQuantity(${item.id}, -1)" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded text-sm">-</button>
                                     <input type="number" value="${item.quantity}" min="1" max="999" 
-                                           class="w-12 px-1 py-0 border rounded text-xs text-center" 
+                                           class="w-16 px-2 py-1 border rounded text-base text-center" 
                                            onchange="setQuantity(${item.id}, this.value)"
                                            onkeypress="handleQuantityKeypress(event, ${item.id})"
                                            onclick="this.select()">
-                                    <button onclick="updateQuantity(${item.id}, 1)" class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs">+</button>
+                                    <button onclick="updateQuantity(${item.id}, 1)" class="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded text-sm">+</button>
                                 </div>
                             `}
                         </td>
-                        <td class="px-3 py-3 text-right">${formatCurrency(item.price * item.quantity)}</td>
-                        <td class="px-3 py-3 text-center">
-                            <button onclick="removeFromCart('${item.id}')" class="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs">×</button>
+                        <td class="px-3 py-3 text-right font-bold text-lg">${formatCurrency(item.price * item.quantity)}</td>
+                        <td class="px-3 py-3 text-center text-lg">
+                            <button onclick="removeFromCart('${item.id}')" class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm">×</button>
                         </td>
                     </tr>
                 `;
@@ -1139,17 +1492,22 @@ function attachSearchListeners() {
         // Render products in table layout
         function displayProductsTable(list) {
             const container = document.getElementById('savedProducts');
+            // Save the list to a global variable so sorting can operate on the
+            // same dataset without re-filtering.  Use a shallow copy to avoid
+            // mutating the original array passed in.
+            currentTableList = Array.isArray(list) ? list.slice() : [];
             container.className = 'overflow-x-auto';
             let tableHtml = '<table class="w-full text-sm">';
+            // Build table header with clickable columns for sorting
             tableHtml += '<thead class="bg-gray-100"><tr>' +
-                         '<th class="px-4 py-2 text-left font-semibold text-gray-700">Nama Produk</th>' +
-                         '<th class="px-4 py-2 text-left font-semibold text-gray-700">Harga</th>' +
+                         '<th class="px-4 py-2 text-left font-semibold text-gray-700 cursor-pointer" onclick="sortTableBy(\'name\')">Nama Produk</th>' +
+                         '<th class="px-4 py-2 text-left font-semibold text-gray-700 cursor-pointer" onclick="sortTableBy(\'price\')">Harga</th>' +
                          '<th class="px-4 py-2 text-left font-semibold text-gray-700">Modal</th>' +
-                         '<th class="px-4 py-2 text-left font-semibold text-gray-700">Stok</th>' +
+                         '<th class="px-4 py-2 text-left font-semibold text-gray-700 cursor-pointer" onclick="sortTableBy(\'stock\')">Stok</th>' +
                          '<th class="px-4 py-2 text-left font-semibold text-gray-700">Barcode</th>' +
                          '<th class="px-4 py-2 text-center font-semibold text-gray-700">Aksi</th>' +
                          '</tr></thead><tbody>';
-            tableHtml += list.map(product => {
+            tableHtml += currentTableList.map(product => {
                 const stockStatus = product.stock === 0 ? 'critical' : product.stock <= product.minStock ? 'low' : 'ok';
                 const stockColor = stockStatus === 'critical' ? 'text-red-600' : stockStatus === 'low' ? 'text-yellow-600' : 'text-green-600';
                 if (product.isService || product.price === 0) {
@@ -1690,10 +2048,25 @@ function attachSearchListeners() {
             };
 
             saveData();
-            displaySavedProducts();
+            // Refresh the product display according to the current view mode.  Using
+            // displaySavedProducts() here would unconditionally render the grid
+            // view, which disrupts the selected table or list view.  Instead we
+            // choose the appropriate display function based on productViewMode.
+            const sorted = [...products].sort((a, b) => b.id - a.id);
+            if (productViewMode === 'table') {
+                displayProductsTable(sorted);
+            } else if (productViewMode === 'list') {
+                displayProductsList(sorted);
+            } else {
+                displayProductsGrid(sorted);
+            }
+            // Update view buttons to reflect current mode after re-render
+            updateViewButtons();
+            // Refresh the scanner tab's cart table
             displayScannerProductTable();
+            // Close the edit modal
             closeEditProductModal();
-            
+
             let message = `Produk "${name}" berhasil diupdate!`;
             if (wholesaleMinQty > 0 && wholesalePrice > 0) {
                 message += `\n🏪 Harga grosir: ${formatCurrency(wholesalePrice)} (min ${wholesaleMinQty} pcs)`;
@@ -3641,3 +4014,47 @@ function startQuaggaScan(targetEl) {
         });
     });
 }
+
+// -----------------------------------------------------------------------------
+// Global scanner toggle utilities
+//
+// These helpers manage the UI state of the standby toggle button and flip
+// the globalScannerEnabled flag.  When disabled, keystrokes are ignored by
+// the global scanner listener so that operators can type product names or
+// perform other interactions without triggering unintended barcode actions.
+
+/**
+ * Update the appearance and label of the global scanner toggle button to
+ * reflect whether scanning is currently enabled.  Called after toggling
+ * and on initial page load.
+ */
+function updateScanToggleButton() {
+    const btn = document.getElementById('toggleScanButton');
+    if (!btn) return;
+    if (globalScannerEnabled) {
+        // Enabled: yellow background and 'Scan ON'
+        btn.classList.remove('bg-gray-400', 'hover:bg-gray-500');
+        btn.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
+        btn.innerHTML = '🔄 <span class="hidden sm:inline">Scan ON</span>';
+    } else {
+        // Disabled: gray background and 'Scan OFF'
+        btn.classList.remove('bg-yellow-500', 'hover:bg-yellow-600');
+        btn.classList.add('bg-gray-400', 'hover:bg-gray-500');
+        btn.innerHTML = '⏸️ <span class="hidden sm:inline">Scan OFF</span>';
+    }
+}
+
+/**
+ * Toggle the global scanner standby state on or off.  When disabled the
+ * listener early returns and scanning must be performed via the dedicated
+ * input field.  After flipping the state the toggle button is updated.
+ */
+function toggleGlobalScanner() {
+    globalScannerEnabled = !globalScannerEnabled;
+    updateScanToggleButton();
+}
+
+// Expose the toggle functions globally so they can be called from inline
+// onclick attributes defined in the HTML.
+window.toggleGlobalScanner = toggleGlobalScanner;
+window.updateScanToggleButton = updateScanToggleButton;

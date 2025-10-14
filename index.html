@@ -198,6 +198,10 @@
                     <button onclick="showReports()" class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press">
                         📊 <span class="hidden sm:inline">Laporan</span>
                     </button>
+                    <!-- Toggle for global barcode scan standby -->
+                    <button id="toggleScanButton" onclick="toggleGlobalScanner()" class="bg-yellow-500 hover:bg-yellow-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press">
+                        🔄 <span class="hidden sm:inline">Scan ON</span>
+                    </button>
                     <!-- Export and Import buttons removed: data is now imported automatically on page load and exported silently after changes -->
                 </div>
             </div>
@@ -233,14 +237,8 @@
                         <span class="text-sm sm:text-lg">Scanner Barcode</span>
                     </h2>
                     <div class="relative">
-                        <div class="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-4 sm:p-8 text-center relative overflow-hidden">
-                            <div class="scanner-line absolute top-0 left-0 right-0 h-0.5 bg-red-500"></div>
-                            <svg class="w-12 h-12 sm:w-16 sm:h-16 mx-auto text-gray-400 mb-2 sm:mb-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h3a1 1 0 000 2H5v1a1 1 0 01-2 0V4zm0 10v-1a1 1 0 112 0v1h1a1 1 0 110 2H4a1 1 0 01-1-1zm10 1a1 1 0 01-1-1v-1a1 1 0 112 0v1h1a1 1 0 110 2h-3zm2-10V4a1 1 0 00-1-1h-3a1 1 0 100 2h1v1a1 1 0 102 0z" clip-rule="evenodd"/>
-                            </svg>
-                            <p class="text-gray-600 font-semibold text-sm sm:text-base">Arahkan barcode ke kamera</p>
-                            <p class="text-xs sm:text-sm text-gray-500 mt-1 sm:mt-2">atau ketik barcode manual di bawah</p>
-                        </div>
+                        <!-- Kolom input untuk ketik atau scan barcode. 
+                             Hanya menampilkan kolom input tanpa kotak kamera atau area bergaris yang mengganggu. -->
                         <input type="text" id="barcodeInput" placeholder="Ketik atau scan barcode..." 
                                class="w-full mt-3 sm:mt-4 px-3 sm:px-4 py-2 sm:py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-base sm:text-lg"
                                onkeypress="handleBarcodeInput(event)" oninput="showProductSuggestions(this.value)">
@@ -260,9 +258,23 @@
 
                     <!-- Product Table -->
                     <div class="mt-6 bg-gray-50 rounded-lg p-4">
-                        <h3 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                            <span class="bg-blue-100 text-blue-600 p-1.5 rounded-lg mr-2">📋</span>
-                            Daftar Produk
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4 flex justify-between items-center">
+                            <!-- Bagian kiri: ikon dan judul daftar produk -->
+                            <div class="flex items-center">
+                                <span class="bg-blue-100 text-blue-600 p-1.5 rounded-lg mr-2">📋</span>
+                                <span>Daftar Produk</span>
+                            </div>
+                            <!-- Notifikasi total bayar akan muncul di kanan bila keranjang tidak kosong -->
+                            <!-- Notification for total payment. To maximize readability, we use a dark background and bright green
+                                 text. The badge becomes highly visible even at a glance. Hidden by default until items are
+                                 in the cart. -->
+                            <div id="totalPayNotice" class="hidden px-3 py-1 rounded-md bg-black shadow-md text-green-400 font-extrabold text-xl tracking-wide"
+                                 style="
+                                    /* Optional: small glow around the text for extra contrast */
+                                    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+                                ">
+                                Total Bayar: <span id="totalPayAmount">Rp 0</span>
+                            </div>
                         </h3>
                         
                         <!-- Search for table -->
