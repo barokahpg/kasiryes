@@ -2575,13 +2575,13 @@ function attachSearchListeners() {
                                             <td class="px-4 py-3 text-sm">${date.toLocaleDateString('id-ID')}<br><span class="text-xs text-gray-500">${date.toLocaleTimeString('id-ID')}</span></td>
                                             <td class="px-4 py-3 text-sm font-semibold text-blue-600">${transaction.customerName}</td>
                                             <td class="px-4 py-3 text-sm text-blue-600">Pembayaran Hutang</td>
-                                            <td class="px-4 py-3 text-right font-semibold text-blue-600">${formatCurrency(transaction.amount)}</td>
-                                            <td class="px-4 py-3 text-right font-semibold text-blue-600">${formatCurrency(transaction.amount)}</td>
+                                            <td class="px-4 py-3 text-right font-semibold text-blue-600">${formatCurrency(transaction.total ?? transaction.paid ?? transaction.amount ?? 0)}</td>
+                                            <td class="px-4 py-3 text-right font-semibold text-blue-600">${formatCurrency(transaction.paid ?? transaction.total ?? transaction.amount ?? 0)}</td>
                                             <td class="px-4 py-3 text-right">
                                                 <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-semibold">
                                                     💰 Cicilan
                                                 </span>
-                                                ${transaction.remainingDebt ? `<br><span class="text-xs text-red-600">Sisa: ${formatCurrency(transaction.remainingDebt)}</span>` : '<br><span class="text-xs text-green-600">Lunas</span>'}
+                                                ${((transaction.remainingDebt ?? transaction.debt) > 0) ? `<br><span class="text-xs text-red-600">Sisa: ${formatCurrency(transaction.remainingDebt ?? transaction.debt)}</span>` : '<br><span class="text-xs text-green-600">Lunas</span>'}
                                             </td>
                                             <td class="px-4 py-3 text-center">
                                                 <button onclick="printDebtPaymentReceipt(${JSON.stringify(transaction).replace(/"/g, '&quot;')})" 
@@ -2698,13 +2698,13 @@ function attachSearchListeners() {
                                             <td class="px-4 py-3 text-sm">${date.toLocaleDateString('id-ID')}<br><span class="text-xs text-gray-500">${date.toLocaleTimeString('id-ID')}</span></td>
                                             <td class="px-4 py-3 text-sm font-semibold text-blue-600">${transaction.customerName}</td>
                                             <td class="px-4 py-3 text-sm text-blue-600">Pembayaran Hutang</td>
-                                            <td class="px-4 py-3 text-right font-semibold text-blue-600">${formatCurrency(transaction.amount)}</td>
-                                            <td class="px-4 py-3 text-right font-semibold text-blue-600">${formatCurrency(transaction.amount)}</td>
+                                            <td class="px-4 py-3 text-right font-semibold text-blue-600">${formatCurrency(transaction.total ?? transaction.paid ?? transaction.amount ?? 0)}</td>
+                                            <td class="px-4 py-3 text-right font-semibold text-blue-600">${formatCurrency(transaction.paid ?? transaction.total ?? transaction.amount ?? 0)}</td>
                                             <td class="px-4 py-3 text-right">
                                                 <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-semibold">
                                                     💰 Cicilan
                                                 </span>
-                                                ${transaction.remainingDebt ? `<br><span class="text-xs text-red-600">Sisa: ${formatCurrency(transaction.remainingDebt)}</span>` : '<br><span class="text-xs text-green-600">Lunas</span>'}
+                                                ${((transaction.remainingDebt ?? transaction.debt) > 0) ? `<br><span class="text-xs text-red-600">Sisa: ${formatCurrency(transaction.remainingDebt ?? transaction.debt)}</span>` : '<br><span class="text-xs text-green-600">Lunas</span>'}
                                             </td>
                                             <td class="px-4 py-3 text-center">
                                                 <button onclick="printDebtPaymentReceipt(${JSON.stringify(transaction).replace(/"/g, '&quot;')})" 
@@ -2805,13 +2805,13 @@ function attachSearchListeners() {
                                             <td class="px-4 py-3 text-sm">${date.toLocaleDateString('id-ID')}<br><span class="text-xs text-gray-500">${date.toLocaleTimeString('id-ID')}</span></td>
                                             <td class="px-4 py-3 text-sm font-semibold text-blue-600">${transaction.customerName}</td>
                                             <td class="px-4 py-3 text-sm text-blue-600">Pembayaran Hutang</td>
-                                            <td class="px-4 py-3 text-right font-semibold text-blue-600">${formatCurrency(transaction.amount)}</td>
-                                            <td class="px-4 py-3 text-right font-semibold text-blue-600">${formatCurrency(transaction.amount)}</td>
+                                            <td class="px-4 py-3 text-right font-semibold text-blue-600">${formatCurrency(transaction.total ?? transaction.paid ?? transaction.amount ?? 0)}</td>
+                                            <td class="px-4 py-3 text-right font-semibold text-blue-600">${formatCurrency(transaction.paid ?? transaction.total ?? transaction.amount ?? 0)}</td>
                                             <td class="px-4 py-3 text-right">
                                                 <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-semibold">
                                                     💰 Cicilan
                                                 </span>
-                                                ${transaction.remainingDebt ? `<br><span class="text-xs text-red-600">Sisa: ${formatCurrency(transaction.remainingDebt)}</span>` : '<br><span class="text-xs text-green-600">Lunas</span>'}
+                                                ${((transaction.remainingDebt ?? transaction.debt) > 0) ? `<br><span class="text-xs text-red-600">Sisa: ${formatCurrency(transaction.remainingDebt ?? transaction.debt)}</span>` : '<br><span class="text-xs text-green-600">Lunas</span>'}
                                             </td>
                                             <td class="px-4 py-3 text-center">
                                                 <button onclick="printDebtPaymentReceipt(${JSON.stringify(transaction).replace(/"/g, '&quot;')})" 
@@ -3159,7 +3159,17 @@ function attachSearchListeners() {
                         customerName: customerName,
                         amount: amount,
                         type: 'debt_payment',
-                        timestamp: new Date().toISOString()
+                        timestamp: new Date().toISOString(),
+                        // Populate total and paid fields for debt payment transactions.
+                        // This ensures that history views relying on total/paid will not display NaN.
+                        total: amount,
+                        paid: amount,
+                        // For consistency with imported data, also include a `debt` field.  A full pay off has no
+                        // remaining balance, so set debt to zero.  This allows the export to properly
+                        // populate the debt column in Google Sheets.
+                        debt: 0,
+                        // Also keep remainingDebt for backward compatibility within the UI.
+                        remainingDebt: 0
                     };
                     
                     salesData.push(paymentRecord);
@@ -3299,7 +3309,13 @@ function attachSearchListeners() {
                     amount: paymentAmount,
                     remainingDebt: remainingDebt,
                     type: 'debt_payment',
-                    timestamp: new Date().toISOString()
+                    timestamp: new Date().toISOString(),
+                    // Populate total and paid for debt payment transactions so that history views do not render NaN.
+                    total: paymentAmount,
+                    paid: paymentAmount,
+                    // Also set `debt` to the remaining balance.  When exported/imported, the debt column
+                    // will map back to this property, ensuring the remaining debt is preserved.
+                    debt: remainingDebt
                 };
                 
                 salesData.push(paymentRecord);
@@ -3518,12 +3534,12 @@ function attachSearchListeners() {
                     <div style="margin-bottom: 10px; font-size: 14px;">
                         <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 18px;">
                             <div>PEMBAYARAN HUTANG:</div>
-                            <div>${formatCurrency(transaction.amount)}</div>
+                            <div>${formatCurrency(transaction.total ?? transaction.paid ?? transaction.amount ?? 0)}</div>
                         </div>
-                        ${transaction.remainingDebt ? `
+                        ${((transaction.remainingDebt ?? transaction.debt) > 0) ? `
                             <div style="display: flex; justify-content: space-between; color: red;">
                                 <div>Sisa Hutang:</div>
-                                <div>${formatCurrency(transaction.remainingDebt)}</div>
+                                <div>${formatCurrency(transaction.remainingDebt ?? transaction.debt)}</div>
                             </div>
                         ` : `
                             <div style="display: flex; justify-content: space-between; color: green;">
@@ -3600,7 +3616,9 @@ async function exportDataToGoogleSheets(silent = false) {
         s.total,
         s.paid ?? '',
         s.change ?? '',
-        s.debt ?? '',
+        // Export the remaining debt.  Fallback to remainingDebt if debt is undefined to
+        // support older transactions that used remainingDebt instead of debt.
+        (s.debt ?? s.remainingDebt ?? ''),
         s.customerName ?? '',
         s.timestamp,
         s.type
