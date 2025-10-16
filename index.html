@@ -874,6 +874,44 @@
         </div>
     </div>
 
+    <!-- Confirmation Overlay (replaces native confirm pop‑ups) -->
+    <!--
+        To improve the user experience and avoid disruptive browser pop‑ups,
+        confirmation prompts are presented as an in‑page overlay.  When a
+        destructive action such as clearing the cart, deleting a product or
+        paying off debt requires user confirmation, this overlay becomes
+        visible with a custom message and two buttons: one to proceed and
+        another to cancel.  The overlay covers the entire viewport and
+        prevents interaction with the rest of the page until a choice is
+        made.  See script.js for the helper function that controls this
+        overlay.
+    -->
+    <div id="confirmOverlay" class="fixed inset-0 flex items-center justify-center bg-gray-800 bg-opacity-50 hidden z-50">
+        <div class="bg-white p-6 rounded-lg shadow-lg max-w-sm w-full">
+            <div id="confirmMessage" class="text-center mb-4 whitespace-pre-line"></div>
+            <div class="flex justify-center space-x-4">
+                <button id="confirmNoButton" class="bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 px-4 rounded-lg font-semibold">Batal</button>
+                <button id="confirmYesButton" class="bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-lg font-semibold">Ya</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert Overlay (replaces native alert pop‑ups) -->
+    <!--
+        A single‑button overlay used to display informational messages that were previously
+        shown using the browser's alert() function.  This overlay prevents the
+        disruptive browser modal while still drawing the user's attention.
+        See script.js for the helper function that controls this overlay.
+    -->
+    <div id="alertOverlay" class="fixed inset-0 flex items-center justify-center bg-gray-800 bg-opacity-50 hidden z-50">
+        <div class="bg-white p-6 rounded-lg shadow-lg max-w-sm w-full">
+            <div id="alertMessage" class="text-center mb-4 whitespace-pre-line"></div>
+            <div class="flex justify-center">
+                <button id="alertOkButton" class="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg font-semibold">OK</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Load external JavaScript libraries -->
     <!-- Barcode scanner library for camera scanning on mobile devices.
          Using a CDN-hosted version of html5-qrcode. This provides support for

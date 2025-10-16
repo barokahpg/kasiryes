@@ -62,6 +62,107 @@ function playBeep() {
 window.playBeep = playBeep;
 
 // -----------------------------------------------------------------------------
+// Confirmation overlay helpers
+//
+// The browser's native confirm() function blocks script execution and
+// displays a modal dialog that cannot be styled consistently across
+// platforms.  To provide a smoother experience, we implement a custom
+// confirmation overlay.  The helper below shows an in‑page modal with
+// customizable text and invokes a callback with the user's choice.
+//
+// Usage:
+//   showConfirmLayer('Apakah Anda yakin?', function(result) {
+//       if (result) {
+//           // user clicked "Ya"
+//       } else {
+//           // user clicked "Batal"
+//       }
+//   });
+//
+function showConfirmLayer(message, callback) {
+    const overlay = document.getElementById('confirmOverlay');
+    const messageEl = document.getElementById('confirmMessage');
+    const yesBtn = document.getElementById('confirmYesButton');
+    const noBtn = document.getElementById('confirmNoButton');
+    // Fallback to native confirm if elements are missing
+    if (!overlay || !messageEl || !yesBtn || !noBtn) {
+        const result = window.confirm(message);
+        if (typeof callback === 'function') callback(result);
+        return;
+    }
+    // Insert message and show overlay
+    messageEl.textContent = message;
+    overlay.classList.remove('hidden');
+    // Define click handlers
+    function cleanup() {
+        yesBtn.removeEventListener('click', onYes);
+        noBtn.removeEventListener('click', onNo);
+    }
+    function onYes() {
+        cleanup();
+        overlay.classList.add('hidden');
+        if (typeof callback === 'function') callback(true);
+    }
+    function onNo() {
+        cleanup();
+        overlay.classList.add('hidden');
+        if (typeof callback === 'function') callback(false);
+    }
+    // Attach listeners
+    yesBtn.addEventListener('click', onYes);
+    noBtn.addEventListener('click', onNo);
+}
+// Expose to global scope so it can be used in inline onclick handlers if needed
+window.showConfirmLayer = showConfirmLayer;
+
+// -----------------------------------------------------------------------------
+// Alert overlay helper
+//
+// This helper replaces the built‑in alert() function with a non‑blocking
+// overlay.  The overlay displays a message and a single "OK" button.  When
+// the button is clicked, the overlay disappears.  Scripts that call
+// alert() normally will continue executing without waiting for the user to
+// acknowledge the message, which is acceptable for informational alerts.
+function showAlertLayer(message, callback) {
+    const overlay = document.getElementById('alertOverlay');
+    const messageEl = document.getElementById('alertMessage');
+    const okBtn = document.getElementById('alertOkButton');
+    if (!overlay || !messageEl || !okBtn) {
+        // If elements are missing, fall back to native alert (stored below)
+        if (typeof _nativeAlert === 'function') {
+            _nativeAlert(message);
+        }
+        if (typeof callback === 'function') callback();
+        return;
+    }
+    messageEl.textContent = message;
+    overlay.classList.remove('hidden');
+    function handler() {
+        okBtn.removeEventListener('click', handler);
+        overlay.classList.add('hidden');
+        if (typeof callback === 'function') callback();
+    }
+    okBtn.addEventListener('click', handler);
+}
+// Expose globally so other functions or inline handlers can call it directly
+window.showAlertLayer = showAlertLayer;
+// Capture a reference to the browser's native alert() implementation before
+// overriding it.  This allows showAlertLayer() to fall back to the native
+// dialog if the overlay elements are not yet present in the DOM (e.g. during
+// early script execution) without causing infinite recursion.
+const _nativeAlert = window.alert.bind(window);
+
+// Override the native alert() function to use our overlay.  This will
+// intercept calls to alert() throughout the application and display the
+// message in our styled overlay.  Since this implementation does not block
+// script execution, any subsequent code will run immediately after the
+// overlay is shown.  If blocking behavior is required, refactor the
+// specific callsite to use showAlertLayer() with a callback instead.
+window.alert = function(message) {
+    showAlertLayer(String(message));
+};
+
+// -----------------------------------------------------------------------------
 // Barcode scan result post‑processing helpers
 //
 // When scanning 1D codes using Quagga or html5‑qrcode, it is common to see
@@ -1301,11 +1402,15 @@ function removeDuplicateProducts() {
         }
 
         function clearCart() {
-            if (cart.length > 0 && confirm('Yakin ingin mengosongkan keranjang?')) {
-                cart = [];
-                updateCartDisplay();
-                updateTotal();
-            }
+            // Only prompt if there are items in the cart
+            if (cart.length === 0) return;
+            showConfirmLayer('Yakin ingin mengosongkan keranjang?', function(confirmed) {
+                if (confirmed) {
+                    cart = [];
+                    updateCartDisplay();
+                    updateTotal();
+                }
+            });
         }
 
         function updateTotal() {
@@ -1956,8 +2061,22 @@ function removeDuplicateProducts() {
                     }).catch(err => console.error('Failed to sync new service product', err));
                 }
                 saveData();
-                displaySavedProducts();
+                // Remove any duplicate products to keep the list clean
+                removeDuplicateProducts();
+                // Re-render products according to the current view mode instead of always switching to the grid view.
+                const sortedAfterAddService = [...products].sort((a, b) => b.id - a.id);
+                if (productViewMode === 'table') {
+                    displayProductsTable(sortedAfterAddService);
+                } else if (productViewMode === 'list') {
+                    displayProductsList(sortedAfterAddService);
+                } else {
+                    displayProductsGrid(sortedAfterAddService);
+                }
+                // Update the view buttons to reflect the current mode
+                updateViewButtons();
+                // Refresh the scanner tab's product table so the new service appears
                 displayScannerProductTable();
+                // Close the add product modal
                 closeAddProductModal();
                 alert(`Produk jasa "${name}" berhasil ditambahkan!`);
                 // Auto-export to Google Sheets silently when a new service product is added
@@ -2010,8 +2129,23 @@ function removeDuplicateProducts() {
                 }).catch(err => console.error('Failed to sync new product', err));
             }
             saveData();
-            displaySavedProducts();
+            // Remove any duplicate products to keep the list tidy
+            removeDuplicateProducts();
+            // Re-render the product list according to the current view mode.  Using displaySavedProducts() would force
+            // the grid view and disrupt the table/list view.
+            const sortedAfterAddRegular = [...products].sort((a, b) => b.id - a.id);
+            if (productViewMode === 'table') {
+                displayProductsTable(sortedAfterAddRegular);
+            } else if (productViewMode === 'list') {
+                displayProductsList(sortedAfterAddRegular);
+            } else {
+                displayProductsGrid(sortedAfterAddRegular);
+            }
+            // Update view buttons to reflect the current mode
+            updateViewButtons();
+            // Refresh the scanner tab's product table so the new product appears
             displayScannerProductTable();
+            // Close the add product modal
             closeAddProductModal();
             
             let message = `Produk "${name}" berhasil ditambahkan!`;
@@ -2185,7 +2319,10 @@ function removeDuplicateProducts() {
                 return;
             }
 
-            if (confirm(`Yakin ingin menghapus produk "${product.name}"?\n\nPerhatian: Data ini tidak dapat dikembalikan!`)) {
+            // Use custom confirmation layer instead of native confirm()
+            const confirmMessage = `Yakin ingin menghapus produk "${product.name}"?\n\nPerhatian: Data ini tidak dapat dikembalikan!`;
+            showConfirmLayer(confirmMessage, function(confirmed) {
+                if (!confirmed) return;
                 // Remove product from array
                 const productIndex = products.findIndex(p => p.id === editingProductId);
                 if (productIndex !== -1) {
@@ -2219,7 +2356,7 @@ function removeDuplicateProducts() {
                         console.error('Auto export failed:', err);
                     }
                 }
-            }
+            });
         }
 
         // Unified Payment functions
@@ -3256,13 +3393,14 @@ function removeDuplicateProducts() {
         let currentDebtAmount = 0;
 
         function payOffDebt(customerName, amount) {
-            if (confirm(`Yakin ingin melunasi hutang ${customerName} sebesar ${formatCurrency(amount)}?`)) {
+            const confirmMessage = `Yakin ingin melunasi hutang ${customerName} sebesar ${formatCurrency(amount)}?`;
+            showConfirmLayer(confirmMessage, function(confirmed) {
+                if (!confirmed) return;
                 // Remove debt from debtData
                 const debtIndex = debtData.findIndex(d => d.customerName === customerName);
                 if (debtIndex !== -1) {
                     debtData.splice(debtIndex, 1);
                     saveData();
-                    
                     // Create payment record
                     const paymentRecord = {
                         id: Date.now(),
@@ -3270,43 +3408,25 @@ function removeDuplicateProducts() {
                         amount: amount,
                         type: 'debt_payment',
                         timestamp: new Date().toISOString(),
-                        // Populate total and paid fields for debt payment transactions.
-                        // This ensures that history views relying on total/paid will not display NaN.
                         total: amount,
                         paid: amount,
-                        // For consistency with imported data, also include a `debt` field.  A full pay off has no
-                        // remaining balance, so set debt to zero.  This allows the export to properly
-                        // populate the debt column in Google Sheets.
                         debt: 0,
-                        // Also keep remainingDebt for backward compatibility within the UI.
                         remainingDebt: 0
                     };
-                    
                     salesData.push(paymentRecord);
                     saveData();
-                    
                     alert(`Hutang ${customerName} sebesar ${formatCurrency(amount)} telah dilunasi!`);
                     showReports(); // Refresh the reports modal
-
-            // Automatically export updated data to Google Sheets after debt is fully paid off.
-            // Using a try/catch here prevents any errors during the export from disrupting
-            // the user experience. The export is performed silently (without alerts)
-            // consistent with the behavior of other transaction handlers. If the
-            // constant GOOGLE_APPS_SCRIPT_URL has not been configured, the export
-            // function will simply return without side effects.
-            try {
-                // The exportDataToGoogleSheets function returns a Promise. We call
-                // .catch() on the returned promise to handle any asynchronous
-                // exceptions (e.g. network errors) while allowing synchronous
-                // exceptions to be caught by the outer try/catch.
-                exportDataToGoogleSheets(true).catch(err => {
-                    console.error('Auto export failed:', err);
-                });
-            } catch (err) {
-                console.error('Auto export failed:', err);
-            }
+                    // Automatically export updated data to Google Sheets after debt is fully paid off.
+                    try {
+                        exportDataToGoogleSheets(true).catch(err => {
+                            console.error('Auto export failed:', err);
+                        });
+                    } catch (err) {
+                        console.error('Auto export failed:', err);
+                    }
                 }
-            }
+            });
         }
 
         function showDebtPaymentModal(customerName, amount) {
