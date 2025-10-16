@@ -3167,6 +3167,24 @@ function attachSearchListeners() {
                     
                     alert(`Hutang ${customerName} sebesar ${formatCurrency(amount)} telah dilunasi!`);
                     showReports(); // Refresh the reports modal
+
+            // Automatically export updated data to Google Sheets after debt is fully paid off.
+            // Using a try/catch here prevents any errors during the export from disrupting
+            // the user experience. The export is performed silently (without alerts)
+            // consistent with the behavior of other transaction handlers. If the
+            // constant GOOGLE_APPS_SCRIPT_URL has not been configured, the export
+            // function will simply return without side effects.
+            try {
+                // The exportDataToGoogleSheets function returns a Promise. We call
+                // .catch() on the returned promise to handle any asynchronous
+                // exceptions (e.g. network errors) while allowing synchronous
+                // exceptions to be caught by the outer try/catch.
+                exportDataToGoogleSheets(true).catch(err => {
+                    console.error('Auto export failed:', err);
+                });
+            } catch (err) {
+                console.error('Auto export failed:', err);
+            }
                 }
             }
         }
