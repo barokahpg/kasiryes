@@ -262,7 +262,8 @@
                             <!-- Bagian kiri: ikon dan judul daftar produk -->
                             <div class="flex items-center">
                                 <span class="bg-blue-100 text-blue-600 p-1.5 rounded-lg mr-2">📋</span>
-                                <span>Daftar Produk</span>
+                                <!-- Renamed header to reflect the contents below, which show the cart items -->
+                                <span>Keranjang</span>
                             </div>
                             <!-- Notifikasi total bayar akan muncul di kanan bila keranjang tidak kosong -->
                             <!-- Notification for total payment. To maximize readability, we use a dark background and bright green
@@ -279,7 +280,7 @@
                         
                         <!-- Search for table -->
                         <div class="mb-4 relative">
-                            <input type="text" id="scannerProductSearch" placeholder="Cari produk dalam tabel..." 
+                            <input type="text" id="scannerProductSearch" placeholder="Cari produk dalam keranjang..." 
                                    class="w-full pl-10 pr-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm"
                                    oninput="searchScannerProducts(this.value)" onkeypress="handleScannerTableSearch(event)">
                             <div class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">🔍</div>
@@ -290,10 +291,12 @@
                             <table class="w-full text-sm">
                                 <thead class="bg-gray-100">
                                     <tr>
+                                        <!-- Header order updated to match cart columns rendered by displayScannerProductTable():
+                                             Nama Produk | Harga | Jumlah | Total | Aksi -->
                                         <th class="px-3 py-2 text-left font-semibold text-gray-700">Nama Produk</th>
-                                        <th class="px-3 py-2 text-left font-semibold text-gray-700">Barcode</th>
                                         <th class="px-3 py-2 text-right font-semibold text-gray-700">Harga</th>
-                                        <th class="px-3 py-2 text-center font-semibold text-gray-700">Stok</th>
+                                        <th class="px-3 py-2 text-center font-semibold text-gray-700">Jumlah</th>
+                                        <th class="px-3 py-2 text-right font-semibold text-gray-700">Total</th>
                                         <th class="px-3 py-2 text-center font-semibold text-gray-700">Aksi</th>
                                     </tr>
                                 </thead>

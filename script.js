@@ -142,6 +142,12 @@ function processScannedCode(rawCode) {
 // from deploying the Apps Script in Google Sheets.
 // Example: "https://script.google.com/macros/s/AKfycb1234567890/exec"
 // Inserted by request: Use the actual Web App URL provided by the user for Google Apps Script integration
+// Placeholder to disable auto-import in offline test environment during testing
+// URL for Google Apps Script integration.  This value is used for
+// importing and exporting data to Google Sheets.  It was copied from
+// the original version of the project to preserve the existing
+// synchronization functionality.  If you deploy a new Apps Script,
+// update this URL accordingly.
 const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby0sIYymZUVJsCDli6jpehKEImLN40hG8h4j6NDK3XrYLtJhqL1lNP6hQ6YHBXobJ8/exec';
 
 
@@ -300,7 +306,10 @@ function initGlobalBarcodeScanner() {
         // would inadvertently trigger the global scanner logic and open the
         // "Tambah Produk" modal when the name does not match an exact barcode.
         const target = event.target;
-        if (target && target.id === 'barcodeInput') {
+        // Avoid treating keystrokes within any input or editable element as a scanner input.
+        // This prevents manual quantity edits or text fields from triggering the global
+        // barcode scan logic.  The barcode input has its own handlers via handleBarcodeInput().
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
             return;
         }
         // Ignore modifier keys and system shortcuts
@@ -348,6 +357,34 @@ function initGlobalBarcodeScanner() {
         scanStartTime = null;
     });
 }
+
+// Keyboard shortcuts: Ctrl + Alt + Shift + '+' to increase quantity of the most recently added item,
+// and Ctrl + Alt + Shift + '-' to decrease it. This avoids conflicting with browser zoom shortcuts.
+document.addEventListener('keydown', function (e) {
+    // Respond only when Ctrl, Alt and Shift are pressed, and Meta is not (Meta is the Command key on Mac).
+    if (e.ctrlKey && e.altKey && e.shiftKey && !e.metaKey) {
+        // Normalize key detection for plus (+) and minus (-) across keyboard layouts
+        const key = e.key;
+        if (key === '+' || key === '=' || key === 'Add') {
+            // Increase quantity if cart has items
+            if (cart && cart.length > 0) {
+                const item = cart[0];
+                updateQuantity(item.id, 1);
+                e.preventDefault();
+            }
+        } else if (key === '-' || key === '_' || key === 'Subtract') {
+            // Decrease quantity if cart has items
+            if (cart && cart.length > 0) {
+                const item = cart[0];
+                updateQuantity(item.id, -1);
+                e.preventDefault();
+            }
+        }
+        // Shortcut handled; do not propagate further
+        return;
+    }
+    // If the pressed keys do not match the shortcut, allow default behaviour.
+});
 
 /**
  * Process a globally scanned barcode.  If the barcode matches an existing
@@ -398,7 +435,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     attachSearchListeners();
 
     // Secara otomatis mengimpor data dari Google Sheets pada saat halaman pertama kali dimuat.
-    // Ini memastikan data produk, penjualan, dan hutang di aplikasi selalu sinkron dengan spreadsheet.
+    // Fungsi importDataFromGoogleSheets() akan menangani sendiri pengecekan URL dan menampilkan
+    // peringatan jika konstanta GOOGLE_APPS_SCRIPT_URL belum diatur.
     try {
         await importDataFromGoogleSheets();
     } catch (err) {
@@ -535,14 +573,37 @@ function attachSearchListeners() {
             if (tabName === 'analysis') {
                 updateAnalysis();
             } else if (tabName === 'history') {
-                displayTransactionHistory();
+                // When switching to the history tab we need to respect any
+                // previously selected filter or search term.  Previously the code
+                // always called displayTransactionHistory(), which shows all
+                // transactions regardless of the currently selected filter.  This
+                // caused the filter dropdown to remain on "Hari Ini" (today) but the
+                // list reverted to showing all transactions once the user switched
+                // away from and back to the history tab.  To fix this we reapply
+                // the appropriate filtering/searching logic on tab activation.
+                const searchInput = document.getElementById('historySearchInput');
+                if (searchInput && searchInput.value && searchInput.value.trim() !== '') {
+                    // If a search term is present, perform search on current data
+                    searchTransactionHistory(searchInput.value.trim());
+                } else {
+                    // Otherwise apply the selected filter (or "all" by default)
+                    filterTransactionHistory();
+                }
             }
         }
 
         // Load/Save data
         function loadData() {
             const savedProducts = localStorage.getItem('kasir_products');
-            if (savedProducts) products = JSON.parse(savedProducts);
+    if (savedProducts) {
+        products = JSON.parse(savedProducts);
+        // Remove duplicate products loaded from local storage.  Duplicates can
+        // accumulate over time if the same record is imported multiple times
+        // from Google Sheets or added manually.  A duplicate is defined as
+        // having the same name, price, modal price, barcode, wholesale rules
+        // and service flag as another product.  Only the first occurrence is kept.
+        removeDuplicateProducts();
+    }
             
             const savedSales = localStorage.getItem('kasir_sales');
             if (savedSales) salesData = JSON.parse(savedSales);
@@ -556,6 +617,38 @@ function attachSearchListeners() {
             localStorage.setItem('kasir_sales', JSON.stringify(salesData));
             localStorage.setItem('kasir_debt', JSON.stringify(debtData));
         }
+
+/**
+ * Remove duplicate products from the global `products` array.  Two products are
+ * considered duplicates if they share the same name, price, modal price,
+ * barcode, wholesale minimum quantity, wholesale price and service flag.  Only
+ * the first occurrence of each unique product is kept.  This helps prevent
+ * clutter in the product list caused by importing the same data multiple
+ * times or other bugs that inadvertently add identical entries.  After
+ * deduplication, the `products` array is updated in place.
+ */
+function removeDuplicateProducts() {
+    if (!Array.isArray(products) || products.length === 0) return;
+    const seen = new Set();
+    const deduped = [];
+    for (const product of products) {
+        const key = JSON.stringify([
+            product.name ?? '',
+            product.price ?? 0,
+            product.modalPrice ?? 0,
+            product.barcode ?? '',
+            product.wholesaleMinQty ?? null,
+            product.wholesalePrice ?? null,
+            product.isService ?? false
+        ]);
+        if (!seen.has(key)) {
+            seen.add(key);
+            deduped.push(product);
+        }
+    }
+    products.length = 0;
+    products.push(...deduped);
+}
 
         // Generate sample data
         function generateSampleTransactions() {
@@ -2097,9 +2190,26 @@ function attachSearchListeners() {
                 const productIndex = products.findIndex(p => p.id === editingProductId);
                 if (productIndex !== -1) {
                     products.splice(productIndex, 1);
+                    // Save the updated list to persistent storage
                     saveData();
-                    displaySavedProducts();
+                    // After deleting a product, re-render the product list in the same
+                    // view mode the user is currently using.  Previously this function
+                    // always called displaySavedProducts() (grid view), which caused
+                    // the layout to switch unexpectedly when a user was in table or
+                    // list view.  Use productViewMode to determine which renderer to
+                    // invoke and sort by ID descending to mimic grid ordering.
+                    const sortedList = [...products].sort((a, b) => b.id - a.id);
+                    if (productViewMode === 'table') {
+                        displayProductsTable(sortedList);
+                    } else if (productViewMode === 'list') {
+                        displayProductsList(sortedList);
+                    } else {
+                        displaySavedProducts();
+                    }
+                    // Also update the scanner product table to remove the deleted
+                    // product from quick-scan suggestions.
                     displayScannerProductTable();
+                    // Close the edit modal
                     closeEditProductModal();
                     alert(`Produk "${product.name}" berhasil dihapus!`);
                     // Auto-export to Google Sheets silently when a product is deleted
@@ -3735,6 +3845,12 @@ async function importDataFromGoogleSheets() {
                         transactions: JSON.parse(row[2] || '[]')
                     }));
                 }
+                // Remove duplicate products before saving so the database and UI
+                // don't accumulate identical entries.  This deduplication
+                // compares product fields and keeps only the first occurrence of
+                // each unique combination.  See `removeDuplicateProducts()` for
+                // details.
+                removeDuplicateProducts();
                 saveData();
                 // refresh UI
                 displaySavedProducts();
