@@ -11,6 +11,81 @@ let cart = [];
         let thermalPrinter = null;
         let printerConnected = false;
 
+// ---------------------------------------------------------------------------
+// Receipt preview state
+//
+// After processing a transaction we no longer print a receipt immediately.
+// Instead, we display a preview in a modal with options to print or skip.
+// The pendingReceiptTransaction stores the transaction data awaiting printing,
+// and pendingFinalizeCallback holds a function that will finalize the
+// transaction (clear cart, update UI, etc.) once the user closes the preview.
+let pendingReceiptTransaction = null;
+let pendingFinalizeCallback = null;
+
+/**
+ * Show the receipt preview modal for a given transaction.
+ * The modal displays the formatted receipt and offers "Cetak" or "Keluar".
+ * @param {Object} transaction The transaction object to preview.
+ */
+function showReceiptPreview(transaction) {
+    pendingReceiptTransaction = transaction;
+    const previewModal = document.getElementById('receiptPreviewModal');
+    const contentEl = document.getElementById('receiptPreviewContent');
+    if (contentEl) {
+        contentEl.innerHTML = generateReceiptContent(transaction);
+    }
+    if (previewModal) {
+        previewModal.classList.remove('hidden');
+    }
+}
+// Expose globally for inline button handlers if needed
+window.showReceiptPreview = showReceiptPreview;
+
+/**
+ * Close the receipt preview without printing.
+ * After closing, if a finalize callback is pending it will be invoked.
+ */
+function closeReceiptPreview() {
+    const previewModal = document.getElementById('receiptPreviewModal');
+    if (previewModal) {
+        previewModal.classList.add('hidden');
+    }
+    // Run finalize callback if defined
+    if (typeof pendingFinalizeCallback === 'function') {
+        const cb = pendingFinalizeCallback;
+        pendingFinalizeCallback = null;
+        pendingReceiptTransaction = null;
+        cb(false);
+    } else {
+        pendingReceiptTransaction = null;
+    }
+}
+window.closeReceiptPreview = closeReceiptPreview;
+
+/**
+ * Print the receipt from preview.  This will call printThermalReceipt() and
+ * then invoke the pending finalization callback.
+ */
+function printReceiptFromPreview() {
+    const previewModal = document.getElementById('receiptPreviewModal');
+    if (pendingReceiptTransaction) {
+        printThermalReceipt(pendingReceiptTransaction);
+    }
+    if (previewModal) {
+        previewModal.classList.add('hidden');
+    }
+    // Run finalize callback if defined
+    if (typeof pendingFinalizeCallback === 'function') {
+        const cb = pendingFinalizeCallback;
+        pendingFinalizeCallback = null;
+        pendingReceiptTransaction = null;
+        cb(true);
+    } else {
+        pendingReceiptTransaction = null;
+    }
+}
+window.printReceiptFromPreview = printReceiptFromPreview;
+
 // Loading overlay helpers
 // These functions control the display of a full‑screen loading indicator which
 // appears during long‑running operations such as importing or exporting data.
@@ -1204,6 +1279,11 @@ function removeDuplicateProducts() {
             document.getElementById('serviceProductPrice').value = '';
             document.getElementById('serviceProductDescription').value = '';
             document.getElementById('serviceProductQuantity').value = '1';
+            // reset modal price for services
+            const modalInput = document.getElementById('serviceProductModalPrice');
+            if (modalInput) {
+                modalInput.value = '';
+            }
             
             document.getElementById('serviceProductModal').classList.remove('hidden');
             document.getElementById('serviceProductModal').classList.add('flex');
@@ -1231,6 +1311,7 @@ function removeDuplicateProducts() {
             }
 
             const price = parseInt(document.getElementById('serviceProductPrice').value) || 0;
+            const modalPrice = parseInt(document.getElementById('serviceProductModalPrice').value) || 0;
             const description = document.getElementById('serviceProductDescription').value.trim();
             const quantity = parseInt(document.getElementById('serviceProductQuantity').value) || 1;
 
@@ -1252,7 +1333,9 @@ function removeDuplicateProducts() {
                 price: price,
                 quantity: quantity,
                 isService: true,
-                description: description || null
+                description: description || null,
+                // store modalPrice if provided for profit calculations
+                modalPrice: modalPrice > 0 ? modalPrice : undefined
             };
 
             cart.push(serviceItem);
@@ -2506,34 +2589,38 @@ function removeDuplicateProducts() {
             salesData.push(transaction);
             saveData();
 
-            // Print receipt
-            printThermalReceipt(transaction);
+            // Instead of printing immediately, show a receipt preview.
+            // Store a callback that will run after the user chooses to print or close the preview.
+            pendingFinalizeCallback = function() {
+                // Clear cart
+                cart = [];
+                updateCartDisplay();
+                updateTotal();
+                closeUnifiedPaymentModal();
 
-            // Clear cart
-            cart = [];
-            updateCartDisplay();
-            updateTotal();
-            closeUnifiedPaymentModal();
-            
-            // Close cart automatically
-            const floatingCart = document.getElementById('floatingCart');
-            const cartToggle = document.getElementById('cartToggle');
-            floatingCart.classList.add('hidden');
-            cartToggle.classList.remove('hidden');
+                // Close cart automatically
+                const floatingCart = document.getElementById('floatingCart');
+                const cartToggle = document.getElementById('cartToggle');
+                floatingCart.classList.add('hidden');
+                cartToggle.classList.remove('hidden');
 
-            if (paid === total) {
-                alert('Pembayaran berhasil! Pembayaran pas, tidak ada kembalian.');
-            } else {
-                alert(`Pembayaran berhasil! Kembalian: ${formatCurrency(paid - total)}`);
-            }
-            displaySavedProducts(); // Refresh product display
-            displayScannerProductTable(); // Refresh scanner table
-            // Auto-export to Google Sheets silently after a full payment transaction
-            try {
-                exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
-            } catch (err) {
-                console.error('Auto export failed:', err);
-            }
+                // Show success message based on whether there is change
+                if (paid === total) {
+                    alert('Pembayaran berhasil! Pembayaran pas, tidak ada kembalian.');
+                } else {
+                    alert(`Pembayaran berhasil! Kembalian: ${formatCurrency(paid - total)}`);
+                }
+                displaySavedProducts(); // Refresh product display
+                displayScannerProductTable(); // Refresh scanner table
+                // Auto-export to Google Sheets silently after a full payment transaction
+                try {
+                    exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+                } catch (err) {
+                    console.error('Auto export failed:', err);
+                }
+            };
+            showReceiptPreview(transaction);
+            return;
         }
 
         function processPartialPaymentUnified(subtotal, discount, total, paid, customerName) {
@@ -2584,30 +2671,33 @@ function removeDuplicateProducts() {
             salesData.push(transaction);
             saveData();
 
-            // Print receipt
-            printThermalReceipt(transaction);
+            // Instead of printing immediately, show a receipt preview.
+            // Store a callback that will run after the user chooses to print or close the preview.
+            pendingFinalizeCallback = function() {
+                // Clear cart
+                cart = [];
+                updateCartDisplay();
+                updateTotal();
+                closeUnifiedPaymentModal();
 
-            // Clear cart
-            cart = [];
-            updateCartDisplay();
-            updateTotal();
-            closeUnifiedPaymentModal();
-            
-            // Close cart automatically
-            const floatingCart = document.getElementById('floatingCart');
-            const cartToggle = document.getElementById('cartToggle');
-            floatingCart.classList.add('hidden');
-            cartToggle.classList.remove('hidden');
+                // Close cart automatically
+                const floatingCart = document.getElementById('floatingCart');
+                const cartToggle = document.getElementById('cartToggle');
+                floatingCart.classList.add('hidden');
+                cartToggle.classList.remove('hidden');
 
-            alert(`Transaksi berhasil! Hutang ${customerName}: ${formatCurrency(debt)}`);
-            displaySavedProducts(); // Refresh product display
-            displayScannerProductTable(); // Refresh scanner table
-            // Auto-export to Google Sheets silently after a partial payment transaction
-            try {
-                exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
-            } catch (err) {
-                console.error('Auto export failed:', err);
-            }
+                alert(`Transaksi berhasil! Hutang ${customerName}: ${formatCurrency(debt)}`);
+                displaySavedProducts(); // Refresh product display
+                displayScannerProductTable(); // Refresh scanner table
+                // Auto-export to Google Sheets silently after a partial payment transaction
+                try {
+                    exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+                } catch (err) {
+                    console.error('Auto export failed:', err);
+                }
+            };
+            showReceiptPreview(transaction);
+            return;
         }
 
         function handlePaymentEnter(event) {
@@ -2763,24 +2853,27 @@ function removeDuplicateProducts() {
             salesData.push(transaction);
             saveData();
 
-            // Print receipt
-            printThermalReceipt(transaction);
+            // Instead of printing immediately, show a receipt preview.
+            // Store a callback that will run after the user chooses to print or close the preview.
+            pendingFinalizeCallback = function() {
+                // Clear cart
+                cart = [];
+                updateCartDisplay();
+                updateTotal();
+                closePartialPaymentModal();
 
-            // Clear cart
-            cart = [];
-            updateCartDisplay();
-            updateTotal();
-            closePartialPaymentModal();
-            
-            // Close cart automatically
-            const floatingCart = document.getElementById('floatingCart');
-            const cartToggle = document.getElementById('cartToggle');
-            floatingCart.classList.add('hidden');
-            cartToggle.classList.remove('hidden');
+                // Close cart automatically
+                const floatingCart = document.getElementById('floatingCart');
+                const cartToggle = document.getElementById('cartToggle');
+                floatingCart.classList.add('hidden');
+                cartToggle.classList.remove('hidden');
 
-            alert(`Transaksi berhasil! Hutang ${customerName}: ${formatCurrency(debt)}`);
-            displaySavedProducts(); // Refresh product display
-            displayScannerProductTable(); // Refresh scanner table
+                alert(`Transaksi berhasil! Hutang ${customerName}: ${formatCurrency(debt)}`);
+                displaySavedProducts(); // Refresh product display
+                displayScannerProductTable(); // Refresh scanner table
+            };
+            showReceiptPreview(transaction);
+            return;
         }
 
         // Transaction history
@@ -3131,9 +3224,18 @@ function removeDuplicateProducts() {
                 
                 if (transaction.items && Array.isArray(transaction.items)) {
                     transaction.items.forEach(item => {
-                        const product = products.find(p => p.id === item.id);
-                        if (product && product.modalPrice && !isNaN(product.modalPrice) && item.quantity && !isNaN(item.quantity)) {
-                            totalModal += product.modalPrice * item.quantity;
+                        // Determine modal/cost price: prefer per-item modalPrice (for services), else fall back to product modalPrice
+                        let costPrice = 0;
+                        if (item.modalPrice && !isNaN(item.modalPrice)) {
+                            costPrice = item.modalPrice;
+                        } else {
+                            const product = products.find(p => p.id === item.id);
+                            if (product && product.modalPrice && !isNaN(product.modalPrice)) {
+                                costPrice = product.modalPrice;
+                            }
+                        }
+                        if (!isNaN(costPrice) && costPrice >= 0 && item.quantity && !isNaN(item.quantity)) {
+                            totalModal += costPrice * item.quantity;
                         }
                     });
                 }
@@ -3161,21 +3263,25 @@ function removeDuplicateProducts() {
                     transaction.items.forEach(item => {
                         if (!item.id || !item.name || !item.price || !item.quantity) return;
                         
+                        // Determine cost price for this item (either per-item modalPrice for services or product.modalPrice)
+                        const product = products.find(p => p.id === item.id);
+                        const costPrice = (item.modalPrice && !isNaN(item.modalPrice)) ? item.modalPrice :
+                                          (product && product.modalPrice && !isNaN(product.modalPrice)) ? product.modalPrice : 0;
+
                         if (!productStats[item.id]) {
-                            const product = products.find(p => p.id === item.id);
                             productStats[item.id] = {
                                 name: item.name,
                                 sold: 0,
                                 revenue: 0,
                                 modal: 0,
-                                modalPrice: product ? (product.modalPrice || 0) : 0
+                                modalPrice: costPrice
                             };
                         }
-                        
+
                         if (!isNaN(item.quantity) && !isNaN(item.price)) {
                             productStats[item.id].sold += item.quantity;
                             productStats[item.id].revenue += item.price * item.quantity;
-                            productStats[item.id].modal += productStats[item.id].modalPrice * item.quantity;
+                            productStats[item.id].modal += costPrice * item.quantity;
                         }
                     });
                 }
@@ -3251,9 +3357,18 @@ function removeDuplicateProducts() {
                 
                 if (transaction.items && Array.isArray(transaction.items)) {
                     transaction.items.forEach(item => {
-                        const product = products.find(p => p.id === item.id);
-                        if (product && product.modalPrice && !isNaN(product.modalPrice) && item.quantity && !isNaN(item.quantity)) {
-                            totalModal += product.modalPrice * item.quantity;
+                        // Determine modal/cost price: prefer per-item modalPrice (for services), else fall back to product modalPrice
+                        let costPrice = 0;
+                        if (item.modalPrice && !isNaN(item.modalPrice)) {
+                            costPrice = item.modalPrice;
+                        } else {
+                            const product = products.find(p => p.id === item.id);
+                            if (product && product.modalPrice && !isNaN(product.modalPrice)) {
+                                costPrice = product.modalPrice;
+                            }
+                        }
+                        if (!isNaN(costPrice) && costPrice >= 0 && item.quantity && !isNaN(item.quantity)) {
+                            totalModal += costPrice * item.quantity;
                         }
                     });
                 }
@@ -4316,3 +4431,25 @@ function toggleGlobalScanner() {
 // onclick attributes defined in the HTML.
 window.toggleGlobalScanner = toggleGlobalScanner;
 window.updateScanToggleButton = updateScanToggleButton;
+
+// Keyboard shortcut: Ctrl+Enter to initiate payment from the Scanner tab
+// When the scanner tab is active and the cart has items, pressing Ctrl+Enter
+// will open the unified payment modal. This helps operators quickly proceed
+// to payment without manually clicking the pay button in the floating cart.
+document.addEventListener('keydown', function(e) {
+    // Only act on Ctrl + Enter
+    const isCtrlEnter = e.ctrlKey && (e.key === 'Enter' || e.keyCode === 13);
+    if (!isCtrlEnter) return;
+
+    // Determine if Scanner tab content is currently visible
+    const scannerContent = document.getElementById('scannerContent');
+    if (!scannerContent || scannerContent.classList.contains('hidden')) {
+        return;
+    }
+
+    // If there are items in the cart, open the payment modal
+    if (Array.isArray(cart) && cart.length > 0) {
+        e.preventDefault();
+        showUnifiedPaymentModal();
+    }
+});
