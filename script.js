@@ -2162,12 +2162,11 @@ function removeDuplicateProducts() {
                 // Close the add product modal
                 closeAddProductModal();
                 alert(`Produk jasa "${name}" berhasil ditambahkan!`);
-                // Auto-export to Google Sheets silently when a new service product is added
+                // Sync only the new service product to Google Sheets
                 try {
-                    // Perform export without showing notifications or blocking the UI
-                    exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+                    sendDeltaToGoogleSheets('add', 'products', productToRow(newProduct)).catch(err => console.error('Auto sync failed:', err));
                 } catch (err) {
-                    console.error('Auto export failed:', err);
+                    console.error('Auto sync failed:', err);
                 }
                 return;
             }
@@ -2236,11 +2235,11 @@ function removeDuplicateProducts() {
                 message += `\n🏪 Harga grosir: ${formatCurrency(wholesalePrice)} (min ${wholesaleMinQty} pcs)`;
             }
             alert(message);
-            // Auto-export to Google Sheets silently when a new product is added
+            // Sync only the new product to Google Sheets
             try {
-                exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+                sendDeltaToGoogleSheets('add', 'products', productToRow(newProduct)).catch(err => console.error('Auto sync failed:', err));
             } catch (err) {
-                console.error('Auto export failed:', err);
+                console.error('Auto sync failed:', err);
             }
         }
 
@@ -2382,11 +2381,14 @@ function removeDuplicateProducts() {
                 message += `\n🏪 Harga grosir: ${formatCurrency(wholesalePrice)} (min ${wholesaleMinQty} pcs)`;
             }
             alert(message);
-            // Auto-export to Google Sheets silently when a product is edited
+            // Sync the updated product to Google Sheets
             try {
-                exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+                const updatedProduct = products.find(p => p.id === editingProductId);
+                if (updatedProduct) {
+                    sendDeltaToGoogleSheets('update', 'products', productToRow(updatedProduct)).catch(err => console.error('Auto sync failed:', err));
+                }
             } catch (err) {
-                console.error('Auto export failed:', err);
+                console.error('Auto sync failed:', err);
             }
         }
 
@@ -2429,14 +2431,16 @@ function removeDuplicateProducts() {
                     // Also update the scanner product table to remove the deleted
                     // product from quick-scan suggestions.
                     displayScannerProductTable();
-                    // Close the edit modal
+                    // Capture the ID before it gets reset so we can sync deletion
+                    const idToDelete = editingProductId;
+                    // Close the edit modal (this will reset editingProductId)
                     closeEditProductModal();
                     alert(`Produk "${product.name}" berhasil dihapus!`);
-                    // Auto-export to Google Sheets silently when a product is deleted
+                    // Sync deletion of this product to Google Sheets using the captured ID
                     try {
-                        exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+                        sendDeltaToGoogleSheets('delete', 'products', idToDelete).catch(err => console.error('Auto sync failed:', err));
                     } catch (err) {
-                        console.error('Auto export failed:', err);
+                        console.error('Auto sync failed:', err);
                     }
                 }
             });
@@ -2612,11 +2616,19 @@ function removeDuplicateProducts() {
                 }
                 displaySavedProducts(); // Refresh product display
                 displayScannerProductTable(); // Refresh scanner table
-                // Auto-export to Google Sheets silently after a full payment transaction
+                // Synchronize the sale and updated product stocks with Google Sheets
                 try {
-                    exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+                    // Send the new sale record
+                    sendDeltaToGoogleSheets('add', 'sales', saleToRow(transaction)).catch(err => console.error('Auto sync failed:', err));
+                    // Send stock updates for each purchased product
+                    transaction.items.forEach(item => {
+                        const p = products.find(prod => prod.id === item.id);
+                        if (p) {
+                            sendDeltaToGoogleSheets('update', 'products', productToRow(p)).catch(err => console.error('Auto sync failed:', err));
+                        }
+                    });
                 } catch (err) {
-                    console.error('Auto export failed:', err);
+                    console.error('Auto sync failed:', err);
                 }
             };
             showReceiptPreview(transaction);
@@ -2689,11 +2701,24 @@ function removeDuplicateProducts() {
                 alert(`Transaksi berhasil! Hutang ${customerName}: ${formatCurrency(debt)}`);
                 displaySavedProducts(); // Refresh product display
                 displayScannerProductTable(); // Refresh scanner table
-                // Auto-export to Google Sheets silently after a partial payment transaction
+                // Synchronize the sale, updated product stocks and debt record to Google Sheets
                 try {
-                    exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+                    // Send the new sale record
+                    sendDeltaToGoogleSheets('add', 'sales', saleToRow(transaction)).catch(err => console.error('Auto sync failed:', err));
+                    // Send stock updates for each purchased product
+                    transaction.items.forEach(item => {
+                        const p = products.find(prod => prod.id === item.id);
+                        if (p) {
+                            sendDeltaToGoogleSheets('update', 'products', productToRow(p)).catch(err => console.error('Auto sync failed:', err));
+                        }
+                    });
+                    // Send the updated debt record
+                    const debtRecord = debtData.find(d => d.customerName === customerName);
+                    if (debtRecord) {
+                        sendDeltaToGoogleSheets('update', 'debts', debtToRow(debtRecord)).catch(err => console.error('Auto sync failed:', err));
+                    }
                 } catch (err) {
-                    console.error('Auto export failed:', err);
+                    console.error('Auto sync failed:', err);
                 }
             };
             showReceiptPreview(transaction);
@@ -3532,13 +3557,18 @@ function removeDuplicateProducts() {
                     saveData();
                     alert(`Hutang ${customerName} sebesar ${formatCurrency(amount)} telah dilunasi!`);
                     showReports(); // Refresh the reports modal
-                    // Automatically export updated data to Google Sheets after debt is fully paid off.
+                    // Synchronize deletion of the debt and the new payment record to Google Sheets
                     try {
-                        exportDataToGoogleSheets(true).catch(err => {
-                            console.error('Auto export failed:', err);
+                        // Remove the debt row
+                        sendDeltaToGoogleSheets('delete', 'debts', customerName).catch(err => {
+                            console.error('Auto sync failed:', err);
+                        });
+                        // Add the payment record as a sale
+                        sendDeltaToGoogleSheets('add', 'sales', saleToRow(paymentRecord)).catch(err => {
+                            console.error('Auto sync failed:', err);
                         });
                     } catch (err) {
-                        console.error('Auto export failed:', err);
+                        console.error('Auto sync failed:', err);
                     }
                 }
             });
@@ -3666,13 +3696,31 @@ function removeDuplicateProducts() {
                 salesData.push(paymentRecord);
                 saveData();
                 
+                // Capture values needed for synchronization before resetting modal state
+                const customerNameToSync = currentDebtCustomer;
+                // Clone the updated debt record (if any) before we modify global state
+                let debtRecordToSync = null;
+                if (remainingDebt > 0 && debtIndex !== -1) {
+                    debtRecordToSync = { ...debtData[debtIndex] };
+                }
+                // Close the modal and reset state variables
                 closeDebtPaymentModal();
                 showReports(); // Refresh the reports modal
-                // Auto-export to Google Sheets silently after a debt payment transaction
+                // Synchronize the debt payment with Google Sheets
                 try {
-                    exportDataToGoogleSheets(true).catch(err => console.error('Auto export failed:', err));
+                    // Add the payment record to Sales sheet
+                    sendDeltaToGoogleSheets('add', 'sales', saleToRow(paymentRecord)).catch(err => console.error('Auto sync failed:', err));
+                    if (remainingDebt === 0) {
+                        // Debt is fully paid off: remove the debt row
+                        sendDeltaToGoogleSheets('delete', 'debts', customerNameToSync).catch(err => console.error('Auto sync failed:', err));
+                    } else {
+                        // Partial payment: update the debt row with new balance and transactions
+                        if (debtRecordToSync) {
+                            sendDeltaToGoogleSheets('update', 'debts', debtToRow(debtRecordToSync)).catch(err => console.error('Auto sync failed:', err));
+                        }
+                    }
                 } catch (err) {
-                    console.error('Auto export failed:', err);
+                    console.error('Auto sync failed:', err);
                 }
             }
         }
@@ -3998,6 +4046,121 @@ async function exportDataToGoogleSheets(silent = false) {
         if (!silent) {
             hideLoading();
         }
+    }
+}
+
+// Alias for backward compatibility: the client originally used an "export"
+// operation to synchronise local data with the Google Sheets backend.  In
+// practice this function performs a full update of the underlying sheets
+// by clearing old rows and writing the current state (see the Apps Script
+// implementation in code.gs).  To align with terminology that emphasises
+// updating rather than exporting, we provide updateDataToGoogleSheets() as
+// a wrapper around exportDataToGoogleSheets().  If you want to add more
+// granular update behaviour (for example, sending only changed rows), you
+// can implement that logic here and adjust your Apps Script accordingly.
+async function updateDataToGoogleSheets(silent = false) {
+    return exportDataToGoogleSheets(silent);
+}
+
+// -----------------------------------------------------------------------------
+// Incremental synchronization helpers
+//
+// The functions below convert application objects into arrays of values that
+// correspond to the columns in the Google Sheets. They are used by
+// sendDeltaToGoogleSheets() to send only the changed record instead of
+// rewriting the entire dataset. This reduces bandwidth and avoids race
+// conditions when multiple devices are synchronizing simultaneously.
+
+/**
+ * Convert a product object into an array matching the Products sheet structure.
+ * @param {Object} product
+ * @returns {Array}
+ */
+function productToRow(product) {
+    return [
+        product.id,
+        product.name,
+        product.price,
+        product.modalPrice,
+        product.barcode,
+        product.stock,
+        product.minStock,
+        product.wholesaleMinQty ?? '',
+        product.wholesalePrice ?? ''
+    ];
+}
+
+/**
+ * Convert a sale/transaction object into an array matching the Sales sheet.
+ * @param {Object} sale
+ * @returns {Array}
+ */
+function saleToRow(sale) {
+    return [
+        sale.id,
+        JSON.stringify(sale.items),
+        sale.subtotal,
+        sale.discount,
+        sale.total,
+        sale.paid ?? '',
+        sale.change ?? '',
+        (sale.debt ?? sale.remainingDebt ?? ''),
+        sale.customerName ?? '',
+        sale.timestamp,
+        sale.type
+    ];
+}
+
+/**
+ * Convert a debt record into an array matching the Debts sheet structure.
+ * @param {Object} debt
+ * @returns {Array}
+ */
+function debtToRow(debt) {
+    return [
+        debt.customerName,
+        debt.amount,
+        JSON.stringify(debt.transactions)
+    ];
+}
+
+/**
+ * Send a single-row change to Google Sheets via the Apps Script. The payload
+ * includes an action (add, update or delete), the object type (products,
+ * sales, debts), and either a row array (for add/update) or an ID (for delete).
+ * This function returns a promise and logs errors to the console if any.
+ *
+ * @param {string} action One of 'add', 'update' or 'delete'.
+ * @param {string} objectType The object type ('products', 'sales', or 'debts').
+ * @param {Array|number|string} rowOrId Array of values for add/update or ID for delete.
+ */
+async function sendDeltaToGoogleSheets(action, objectType, rowOrId) {
+    if (!GOOGLE_APPS_SCRIPT_URL || GOOGLE_APPS_SCRIPT_URL.includes('PASTE')) {
+        console.warn('URL Google Apps Script belum diatur. Perubahan tidak akan tersinkron.');
+        return;
+    }
+    const payload = { action: action, objectType: objectType };
+    if (action === 'delete') {
+        payload.id = rowOrId;
+    } else {
+        payload.row = rowOrId;
+    }
+    try {
+        /**
+         * Use text/plain instead of application/json to avoid a CORS preflight
+         * request.  Google Apps Script accepts plain text payloads and
+         * JSON.parse() will still parse the body correctly.  A preflight
+         * triggered by application/json would require explicit
+         * Access-Control-Allow-Origin headers from the Apps Script, which are
+         * not added by default and would cause a 405 error in the browser.
+         */
+        await fetch(GOOGLE_APPS_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify(payload)
+        });
+    } catch (err) {
+        console.error('Failed to sync change to Google Sheets:', err);
     }
 }
 
