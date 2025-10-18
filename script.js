@@ -4836,3 +4836,1287 @@ document.addEventListener('keydown', function(e) {
         showUnifiedPaymentModal();
     }
 });
+
+// -----------------------------------------------------------------------------
+// Tema (Theme) System
+//
+// To provide a customizable look and feel, this section defines several
+// distinct themes and exposes functions to toggle a theme selection menu
+// and apply a chosen theme. Each theme contains a unique palette for the
+// overall page background, card surfaces, text colors and borders. When a
+// theme is applied, an existing <style> tag with id "activeTheme" is removed
+// and replaced with a new one containing the selected theme's CSS. This
+// modular approach allows the rest of the application to rely on Tailwind
+// classes while still enabling high-level theming via CSS overrides.
+
+// An array of theme definitions. Each entry contains a descriptive name
+// and a CSS string that overrides common colors. The CSS strings use
+// '!important' where necessary to outrank Tailwind's defaults. Adjust or
+// extend this array to change the available themes.
+const themes = [
+    {
+        name: 'Tema 1',
+        css: `
+            body {
+                background: linear-gradient(to bottom right, #eff6ff, #eef2ff);
+            }
+            .bg-white {
+                background-color: #ffffff !important;
+            }
+            .bg-gray-50 {
+                background-color: #f9fafb !important;
+            }
+            .bg-gray-100 {
+                background-color: #f3f4f6 !important;
+            }
+            .text-gray-800 {
+                color: #374151 !important;
+            }
+            .text-gray-700,
+            .text-gray-600 {
+                color: #4b5563 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #6b7280 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #e5e7eb !important;
+            }
+
+            /* Ensure product and service cards follow the theme colors */
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #ffffff !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #e5e7eb !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 2',
+        css: `
+            body {
+                background: #0f172a;
+                color: #e2e8f0;
+            }
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #1f2937 !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #f3f4f6 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #9ca3af !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #334155 !important;
+            }
+
+            /* Theme colors for product and service cards */
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #1f2937 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #334155 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 3',
+        css: `
+            body {
+                background: linear-gradient(to bottom right, #f0fdf4, #dcfce7);
+            }
+            .bg-white {
+                background-color: #ffffff !important;
+            }
+            .bg-gray-50 {
+                background-color: #f7fee7 !important;
+            }
+            .bg-gray-100 {
+                background-color: #ecfccb !important;
+            }
+            .text-gray-800 {
+                color: #064e3b !important;
+            }
+            .text-gray-700 {
+                color: #065f46 !important;
+            }
+            .text-gray-600 {
+                color: #047857 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #065f46 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #bbf7d0 !important;
+            }
+
+            /* Apply soft green palette to product and service cards */
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #f7fee7 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #bbf7d0 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 4',
+        css: `
+            body {
+                background: linear-gradient(to bottom right, #faf5ff, #ede9fe);
+            }
+            .bg-white {
+                background-color: #ffffff !important;
+            }
+            .bg-gray-50 {
+                background-color: #f5f3ff !important;
+            }
+            .bg-gray-100 {
+                background-color: #ede9fe !important;
+            }
+            .text-gray-800 {
+                color: #4c1d95 !important;
+            }
+            .text-gray-700 {
+                color: #5b21b6 !important;
+            }
+            .text-gray-600 {
+                color: #6b21a8 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #7c3aed !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #ddd6fe !important;
+            }
+
+            /* Purple palette for product and service cards */
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #f5f3ff !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #ddd6fe !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 5',
+        css: `
+            body {
+                background: linear-gradient(to bottom right, #eff6ff, #dbeafe);
+            }
+            .bg-white {
+                background-color: #ffffff !important;
+            }
+            .bg-gray-50 {
+                background-color: #eff6ff !important;
+            }
+            .bg-gray-100 {
+                background-color: #dbeafe !important;
+            }
+            .text-gray-800 {
+                color: #1e3a8a !important;
+            }
+            .text-gray-700 {
+                color: #1e40af !important;
+            }
+            .text-gray-600 {
+                color: #1e3a8a !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #2563eb !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #bfdbfe !important;
+            }
+
+            /* Blue palette for product and service cards */
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #eff6ff !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #bfdbfe !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 6',
+        css: `
+            body {
+                background: linear-gradient(to bottom right, #fff7ed, #ffedd5);
+            }
+            .bg-white {
+                background-color: #ffffff !important;
+            }
+            .bg-gray-50 {
+                background-color: #fff7ed !important;
+            }
+            .bg-gray-100 {
+                background-color: #ffedd5 !important;
+            }
+            .text-gray-800 {
+                color: #7c2d12 !important;
+            }
+            .text-gray-700 {
+                color: #9a3412 !important;
+            }
+            .text-gray-600 {
+                color: #c2410c !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #ea580c !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #fed7aa !important;
+            }
+
+            /* Orange palette for product and service cards */
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #fff7ed !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #fed7aa !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 7',
+        css: `
+            body {
+                background: #000000;
+            }
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #111111 !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #ffffff !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #facc15 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #374151 !important;
+            }
+
+            /* High contrast palette for product and service cards */
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #111111 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #374151 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 8',
+        css: `
+            body {
+                background: #f8fafc;
+            }
+            .bg-white {
+                background-color: #ffffff !important;
+            }
+            .bg-gray-50 {
+                background-color: #f1f5f9 !important;
+            }
+            .bg-gray-100 {
+                background-color: #e2e8f0 !important;
+            }
+            .text-gray-800 {
+                color: #111827 !important;
+            }
+            .text-gray-700 {
+                color: #1f2937 !important;
+            }
+            .text-gray-600 {
+                color: #374151 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #475569 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #e5e7eb !important;
+            }
+
+            /* Minimal palette for product and service cards */
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #f1f5f9 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #e5e7eb !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 9',
+        css: `
+            body {
+                background: linear-gradient(to bottom right, #fdf6e3, #fcefcf);
+            }
+            .bg-white {
+                background-color: #fffaf0 !important;
+            }
+            .bg-gray-50 {
+                background-color: #fdf6e3 !important;
+            }
+            .bg-gray-100 {
+                background-color: #fef3c7 !important;
+            }
+            .text-gray-800 {
+                color: #5b3a29 !important;
+            }
+            .text-gray-700 {
+                color: #7c4a2d !important;
+            }
+            .text-gray-600 {
+                color: #8f563b !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #a06b4f !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #fae8bd !important;
+            }
+
+            /* Warm beige palette for product and service cards */
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #fdf6e3 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #fae8bd !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 10',
+        css: `
+            body {
+                background: linear-gradient(to bottom right, #fdf2f8, #fce7f3);
+            }
+            .bg-white {
+                background-color: #ffffff !important;
+            }
+            .bg-gray-50 {
+                background-color: #fdf2f8 !important;
+            }
+            .bg-gray-100 {
+                background-color: #fce7f3 !important;
+            }
+            .text-gray-800 {
+                color: #9d174d !important;
+            }
+            .text-gray-700 {
+                color: #be185d !important;
+            }
+            .text-gray-600 {
+                color: #e11d48 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #db2777 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #fbcfe8 !important;
+            }
+
+            /* Pastel pink palette for product and service cards */
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #fdf2f8 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #fbcfe8 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    }
+    ,
+    // Additional themes 11-20 that also modify layout such as sidebar, bottom bar etc.
+    {
+        name: 'Tema 11',
+        css: `
+            /* Modern Flat: neutral background, pill-shaped nav on top */
+            body {
+                background: #f5f7fa;
+            }
+            #navWrapper {
+                background-color: #ffffff !important;
+                box-shadow: none !important;
+                border-radius: 0.5rem !important;
+            }
+            #navContainer {
+                flex-direction: row !important;
+                justify-content: space-around !important;
+            }
+            #navContainer button {
+                margin: 0 0.25rem !important;
+                border-radius: 9999px !important;
+                background-color: #e0f2fe !important;
+                color: #0369a1 !important;
+                padding: 0.5rem 1rem !important;
+            }
+            #contentContainer {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                margin-bottom: 0 !important;
+            }
+            /* Card palette for Modern Flat */
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #ffffff !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #0f172a !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #334155 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #e2e8f0 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #ffffff !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #e2e8f0 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 12',
+        css: `
+            /* Dark Minimal: dark mode with vertical sidebar on the left */
+            body {
+                background-color: #121212;
+                color: #e0e0e0;
+            }
+            #navWrapper {
+                position: fixed;
+                top: 5rem;
+                left: 0;
+                width: 200px;
+                height: calc(100% - 5rem);
+                background-color: #1f1f1f;
+                box-shadow: inset -1px 0 0 #333333;
+                z-index: 30;
+            }
+            #navContainer {
+                flex-direction: column !important;
+            }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.75rem 1rem !important;
+                color: #e0e0e0 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #333333 !important;
+            }
+            #navContainer button:hover {
+                background-color: #272727 !important;
+                color: #bb86fc !important;
+            }
+            #contentContainer {
+                margin-left: 200px !important;
+                margin-right: 0 !important;
+            }
+            /* Dark card palette */
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #1e1e1e !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #e0e0e0 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #9e9e9e !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #333333 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #1e1e1e !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #333333 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 13',
+        css: `
+            /* Colorful Card: bright gradient and bottom navigation bar */
+            body {
+                background: linear-gradient(to bottom right, #f0fdfa, #fef6e4);
+            }
+            #navWrapper {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 64px;
+                background-color: #0ea5e9;
+                border-top: 2px solid #0284c7;
+                display: flex;
+                align-items: center;
+                z-index: 30;
+            }
+            #navContainer {
+                flex-direction: row !important;
+                width: 100%;
+            }
+            #navContainer button {
+                flex: 1 1 0%;
+                color: #ffffff !important;
+                background-color: transparent !important;
+                border-radius: 0 !important;
+                border-right: 1px solid rgba(255,255,255,0.2) !important;
+            }
+            #navContainer button:last-child {
+                border-right: none !important;
+            }
+            #navContainer button:hover {
+                background-color: rgba(255,255,255,0.1) !important;
+            }
+            #contentContainer {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                margin-bottom: 64px !important;
+            }
+            /* Colorful card palette */
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #ffffff !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #0e7490 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #155e75 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #bae6fd !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #e0f2fe !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #bae6fd !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 14',
+        css: `
+            /* Zen Minimal: light theme with left sidebar */
+            body {
+                background-color: #fafafa;
+            }
+            #navWrapper {
+                position: fixed;
+                top: 5rem;
+                left: 0;
+                width: 170px;
+                height: calc(100% - 5rem);
+                background-color: #ffffff;
+                border-right: 1px solid #e5e7eb;
+                z-index: 30;
+            }
+            #navContainer {
+                flex-direction: column !important;
+            }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #334155 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #e5e7eb !important;
+            }
+            #navContainer button:hover {
+                background-color: #f1f5f9 !important;
+            }
+            #contentContainer {
+                margin-left: 170px !important;
+                margin-right: 0 !important;
+            }
+            /* Zen card palette */
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #ffffff !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #1e293b !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #475569 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #e5e7eb !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #f1f5f9 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #e5e7eb !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 15',
+        css: `
+            /* Retro: neon accents and dark gradients */
+            body {
+                background: linear-gradient(135deg, #10002b, #240046);
+                color: #ffffff;
+            }
+            #navWrapper {
+                background-color: transparent !important;
+            }
+            #navContainer {
+                background-color: #3a0ca3;
+                flex-direction: row !important;
+            }
+            #navContainer button {
+                color: #ffffff !important;
+                background-color: transparent !important;
+                border-radius: 0 !important;
+                border-bottom: 2px solid transparent !important;
+            }
+            #navContainer button:hover {
+                border-bottom-color: #4cc9f0 !important;
+            }
+            #contentContainer {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+            }
+            /* Retro card palette */
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: rgba(26, 10, 45, 0.8) !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #f8f9fa !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #e0aaff !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #3a0ca3 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: rgba(26, 10, 45, 0.7) !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #7209b7 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 16',
+        css: `
+            /* Compact: narrow sidebar with icons only */
+            body {
+                background-color: #f5f5f5;
+            }
+            #navWrapper {
+                position: fixed;
+                top: 5rem;
+                left: 0;
+                width: 80px;
+                height: calc(100% - 5rem);
+                background-color: #ffffff;
+                border-right: 1px solid #e5e7eb;
+                z-index: 30;
+            }
+            #navContainer {
+                flex-direction: column !important;
+            }
+            #navContainer button {
+                justify-content: center !important;
+                padding: 1rem 0 !important;
+            }
+            #navContainer button span {
+                display: none !important;
+            }
+            #contentContainer {
+                margin-left: 80px !important;
+                margin-right: 0 !important;
+            }
+            /* Compact card palette */
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #ffffff !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #0f172a !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #475569 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #e5e7eb !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #f1f5f9 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #e5e7eb !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 17',
+        css: `
+            /* Side Tab Right: vertical navigation on the right */
+            body {
+                background-color: #fdfdfd;
+            }
+            #navWrapper {
+                position: fixed;
+                top: 5rem;
+                right: 0;
+                width: 200px;
+                height: calc(100% - 5rem);
+                background-color: #ffffff;
+                border-left: 1px solid #e5e7eb;
+                z-index: 30;
+            }
+            #navContainer {
+                flex-direction: column !important;
+            }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #1f2937 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #e5e7eb !important;
+            }
+            #navContainer button:hover {
+                background-color: #f1f5f9 !important;
+            }
+            #contentContainer {
+                margin-left: 0 !important;
+                margin-right: 200px !important;
+            }
+            /* Side Tab card palette */
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #ffffff !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #1e293b !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #475569 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #e5e7eb !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #f1f5f9 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #e5e7eb !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 18',
+        css: `
+            /* Material Design: deep purple top bar and subtle cards */
+            body {
+                background-color: #f5f5f5;
+            }
+            #navWrapper {
+                position: static;
+                width: 100%;
+                background-color: #6200ea !important;
+                border-radius: 0 !important;
+                box-shadow: none !important;
+            }
+            #navContainer {
+                flex-direction: row !important;
+            }
+            #navContainer button {
+                color: #ffffff !important;
+                background-color: transparent !important;
+                border-radius: 0 !important;
+            }
+            #navContainer button:hover {
+                background-color: rgba(255,255,255,0.1) !important;
+            }
+            #contentContainer {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+            }
+            /* Material card palette */
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #ffffff !important;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #1e1e1e !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #6b6b6b !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #d1c4e9 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #ffffff !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #d1c4e9 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 19',
+        css: `
+            /* Glassmorphism: translucent panels and blurred backgrounds */
+            body {
+                background: linear-gradient(to bottom right, #eef2f3, #8e9eab);
+                color: #ffffff;
+            }
+            #navWrapper {
+                backdrop-filter: blur(10px);
+                background: rgba(255, 255, 255, 0.3) !important;
+                border-radius: 1rem !important;
+                border: 1px solid rgba(255, 255, 255, 0.4) !important;
+            }
+            #navContainer {
+                flex-direction: row !important;
+            }
+            #navContainer button {
+                color: #ffffff !important;
+                background-color: transparent !important;
+            }
+            #navContainer button:hover {
+                background-color: rgba(255,255,255,0.1) !important;
+            }
+            #contentContainer {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+            }
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: rgba(255, 255, 255, 0.3) !important;
+                backdrop-filter: blur(10px) !important;
+                border: 1px solid rgba(255, 255, 255, 0.4) !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #ffffff !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #d1d5db !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: rgba(255, 255, 255, 0.4) !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: rgba(255, 255, 255, 0.3) !important;
+                backdrop-filter: blur(10px) !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: rgba(255, 255, 255, 0.4) !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    },
+    {
+        name: 'Tema 20',
+        css: `
+            /* High Contrast Light: bright accents and strong contrast */
+            body {
+                background-color: #ffffff;
+                color: #111827;
+            }
+            #navWrapper {
+                background-color: #2563eb !important;
+                border-radius: 0 !important;
+            }
+            #navContainer {
+                flex-direction: row !important;
+            }
+            #navContainer button {
+                color: #ffffff !important;
+                background-color: transparent !important;
+                border-right: 1px solid rgba(255, 255, 255, 0.3) !important;
+            }
+            #navContainer button:last-child {
+                border-right: none !important;
+            }
+            #navContainer button:hover {
+                background-color: rgba(255,255,255,0.1) !important;
+            }
+            #contentContainer {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+            }
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #ffffff !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #111827 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #4b5563 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #d1d5db !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #ffffff !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #d1d5db !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+        `
+    }
+];
+
+/**
+ * Toggle the visibility of the theme selection menu. When called, this
+ * function locates the element with id "themeMenu" and toggles its
+ * "hidden" class. If the menu is currently hidden, it will slide into view;
+ * otherwise it will disappear.
+ */
+function toggleThemeMenu() {
+    const menu = document.getElementById('themeMenu');
+    if (!menu) return;
+    menu.classList.toggle('hidden');
+}
+// Expose globally for inline onclick handlers
+window.toggleThemeMenu = toggleThemeMenu;
+
+/**
+ * Apply a theme by its index (1-based). This function removes any
+ * previously applied theme by deleting the existing <style id="activeTheme">
+ * element. It then creates a new <style> element, assigns it the same id,
+ * populates it with the CSS of the selected theme, and appends it to
+ * document.head. After applying the theme, the theme menu is hidden.
+ *
+ * @param {number} idx The 1-based index of the theme to apply.
+ */
+function applyTheme(idx) {
+    const index = parseInt(idx, 10) - 1;
+    if (index < 0 || index >= themes.length) return;
+    // Remove old theme
+    const oldStyle = document.getElementById('activeTheme');
+    if (oldStyle && oldStyle.parentNode) {
+        oldStyle.parentNode.removeChild(oldStyle);
+    }
+    // Create new style element for the selected theme
+    const style = document.createElement('style');
+    style.id = 'activeTheme';
+    style.textContent = themes[index].css;
+    document.head.appendChild(style);
+    // Hide the menu after applying
+    const menu = document.getElementById('themeMenu');
+    if (menu) menu.classList.add('hidden');
+}
+// Expose globally for inline onclick handlers
+window.applyTheme = applyTheme;
+
+// Apply the default theme (Theme 1) once the DOM is fully loaded. This
+// ensures consistent styling from the moment the page finishes rendering.
+document.addEventListener('DOMContentLoaded', () => {
+    applyTheme(1);
+});

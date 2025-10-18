@@ -164,9 +164,83 @@
                 width: 100%;
             }
         }
+        /* Snowfall animation and cool atmosphere overlay
+           This container holds multiple snowflake elements that drift down from the top
+           of the viewport. Each flake has a different size, duration and delay to
+           create a varied and soothing snowfall effect. */
+        #snowfall {
+            pointer-events: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+        }
+        #snowfall .flake {
+            position: absolute;
+            top: -10%;
+            width: 8px;
+            height: 8px;
+            opacity: 0.9;
+            background-color: rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            animation-name: fallSnow;
+            animation-iteration-count: infinite;
+            animation-timing-function: linear;
+        }
+        @keyframes fallSnow {
+            0% {
+                transform: translateY(-10vh);
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(110vh);
+                opacity: 0.6;
+            }
+        }
+        /* Set individual positions, delays, durations, and optional size adjustments for each flake */
+        #snowfall .flake:nth-child(1)  { left: 5%;  animation-duration: 8s;  animation-delay: 0s;   width: 6px; height: 6px; }
+        #snowfall .flake:nth-child(2)  { left: 12%; animation-duration: 9s;  animation-delay: 2s;   width: 7px; height: 7px; }
+        #snowfall .flake:nth-child(3)  { left: 20%; animation-duration: 7s;  animation-delay: 4s;   width: 5px; height: 5px; }
+        #snowfall .flake:nth-child(4)  { left: 28%; animation-duration: 11s; animation-delay: 1s;   width: 6px; height: 6px; }
+        #snowfall .flake:nth-child(5)  { left: 36%; animation-duration: 8s;  animation-delay: 3s;   width: 8px; height: 8px; }
+        #snowfall .flake:nth-child(6)  { left: 44%; animation-duration: 10s; animation-delay: 5s;   width: 9px; height: 9px; }
+        #snowfall .flake:nth-child(7)  { left: 52%; animation-duration: 12s; animation-delay: 0.5s; width: 6px; height: 6px; }
+        #snowfall .flake:nth-child(8)  { left: 60%; animation-duration: 6s;  animation-delay: 2.5s; width: 5px; height: 5px; }
+        #snowfall .flake:nth-child(9)  { left: 68%; animation-duration: 9s;  animation-delay: 6s;   width: 7px; height: 7px; }
+        #snowfall .flake:nth-child(10) { left: 76%; animation-duration: 8s;  animation-delay: 1.5s; width: 8px; height: 8px; }
+        #snowfall .flake:nth-child(11) { left: 84%; animation-duration: 11s; animation-delay: 3.5s; width: 6px; height: 6px; }
+        #snowfall .flake:nth-child(12) { left: 92%; animation-duration: 9s;  animation-delay: 0.8s; width: 5px; height: 5px; }
+        #snowfall .flake:nth-child(13) { left: 16%; animation-duration: 13s; animation-delay: 4.2s; width: 7px; height: 7px; }
+        #snowfall .flake:nth-child(14) { left: 40%; animation-duration: 8s;  animation-delay: 2.8s; width: 5px; height: 5px; }
+        #snowfall .flake:nth-child(15) { left: 72%; animation-duration: 10s; animation-delay: 5.5s; width: 6px; height: 6px; }
     </style>
 </head>
 <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+
+    <!-- Falling flowers container: This fixed layer sits behind all content and
+         contains multiple flower spans that animate downward to evoke the
+         feeling of petals floating gently through the air. It helps create
+         a cool, calming atmosphere on the page. -->
+    <div id="snowfall">
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+        <span class="flake"></span>
+    </div>
     <!-- Printer Status -->
     <div id="printerStatus" class="printer-status printer-disconnected hidden">
         🖨️ Printer Terputus
@@ -202,6 +276,10 @@
                     <button id="toggleScanButton" onclick="toggleGlobalScanner()" class="bg-yellow-500 hover:bg-yellow-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press">
                         🔄 <span class="hidden sm:inline">Scan ON</span>
                     </button>
+                    <!-- Theme selection button placed in the header alongside other controls -->
+                    <button onclick="toggleThemeMenu()" class="bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press">
+                        🎨 <span class="hidden sm:inline">Tema</span>
+                    </button>
                     <!-- Export and Import buttons removed: data is now imported automatically on page load and updated silently after changes -->
                 </div>
             </div>
@@ -210,8 +288,8 @@
 
     <div class="container mx-auto px-2 sm:px-4 py-3 sm:py-6">
         <!-- Navigation Tabs -->
-        <div class="bg-white rounded-lg sm:rounded-xl shadow-lg mb-3 sm:mb-6">
-            <div class="flex border-b border-gray-200 overflow-x-auto">
+        <div id="navWrapper" class="bg-white rounded-lg sm:rounded-xl shadow-lg mb-3 sm:mb-6">
+            <div id="navContainer" class="flex border-b border-gray-200 overflow-x-auto">
                 <button onclick="switchTab('scanner')" id="scannerTab" class="flex-1 py-2 px-2 sm:py-4 sm:px-6 text-center font-semibold transition-colors bg-green-500 text-white rounded-tl-lg sm:rounded-tl-xl whitespace-nowrap text-xs sm:text-base">
                     📱 <span class="hidden sm:inline">Scanner</span>
                 </button>
@@ -228,7 +306,7 @@
         </div>
 
         <!-- Tab Content -->
-        <div class="space-y-6">
+        <div id="contentContainer" class="space-y-6">
             <!-- Scanner Tab -->
             <div id="scannerContent" class="tab-content">
                 <div class="bg-white rounded-lg sm:rounded-xl shadow-lg p-3 sm:p-6">
@@ -464,6 +542,98 @@
         </div>
     </div>
 
+    <!-- Theme Selection Menu -->
+    <!-- This panel appears near the top right of the screen when the "Tema" button in the header is clicked.
+         Users can choose from ten distinct themes. A small coloured circle previews each theme's palette. -->
+    <div id="themeMenu" class="hidden fixed top-20 right-4 z-50 bg-white border border-gray-300 rounded-lg shadow-xl p-4 w-60 max-h-96 overflow-y-auto">
+        <div class="flex justify-between items-center mb-3">
+            <span class="font-semibold text-gray-700">Pilih Tema</span>
+            <button onclick="toggleThemeMenu()" class="text-gray-500 hover:text-gray-700">✖️</button>
+        </div>
+        <div class="space-y-2">
+            <button onclick="applyTheme(1)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 1</span>
+                <span class="w-4 h-4 rounded-full" style="background: linear-gradient(to bottom right, #eff6ff, #eef2ff);"></span>
+            </button>
+            <button onclick="applyTheme(2)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 2</span>
+                <span class="w-4 h-4 rounded-full" style="background: #1f2937;"></span>
+            </button>
+            <button onclick="applyTheme(3)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 3</span>
+                <span class="w-4 h-4 rounded-full" style="background: #dcfce7;"></span>
+            </button>
+            <button onclick="applyTheme(4)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 4</span>
+                <span class="w-4 h-4 rounded-full" style="background: #ede9fe;"></span>
+            </button>
+            <button onclick="applyTheme(5)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 5</span>
+                <span class="w-4 h-4 rounded-full" style="background: #dbeafe;"></span>
+            </button>
+            <button onclick="applyTheme(6)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 6</span>
+                <span class="w-4 h-4 rounded-full" style="background: #ffedd5;"></span>
+            </button>
+            <button onclick="applyTheme(7)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 7</span>
+                <span class="w-4 h-4 rounded-full" style="background: #111111;"></span>
+            </button>
+            <button onclick="applyTheme(8)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 8</span>
+                <span class="w-4 h-4 rounded-full" style="background: #f1f5f9;"></span>
+            </button>
+            <button onclick="applyTheme(9)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 9</span>
+                <span class="w-4 h-4 rounded-full" style="background: #fef3c7;"></span>
+            </button>
+            <button onclick="applyTheme(10)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 10</span>
+                <span class="w-4 h-4 rounded-full" style="background: #fce7f3;"></span>
+            </button>
+            <!-- Additional themes 11-20 -->
+            <button onclick="applyTheme(11)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 11</span>
+                <span class="w-4 h-4 rounded-full" style="background: #d1d5db;"></span>
+            </button>
+            <button onclick="applyTheme(12)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 12</span>
+                <span class="w-4 h-4 rounded-full" style="background: #1a202c;"></span>
+            </button>
+            <button onclick="applyTheme(13)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 13</span>
+                <span class="w-4 h-4 rounded-full" style="background: #fbbf24;"></span>
+            </button>
+            <button onclick="applyTheme(14)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 14</span>
+                <span class="w-4 h-4 rounded-full" style="background: #f3f4f6;"></span>
+            </button>
+            <button onclick="applyTheme(15)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 15</span>
+                <span class="w-4 h-4 rounded-full" style="background: #fed7aa;"></span>
+            </button>
+            <button onclick="applyTheme(16)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 16</span>
+                <span class="w-4 h-4 rounded-full" style="background: #f1f5f9;"></span>
+            </button>
+            <button onclick="applyTheme(17)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 17</span>
+                <span class="w-4 h-4 rounded-full" style="background: #c7d2fe;"></span>
+            </button>
+            <button onclick="applyTheme(18)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 18</span>
+                <span class="w-4 h-4 rounded-full" style="background: #f5f5f5;"></span>
+            </button>
+            <button onclick="applyTheme(19)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 19</span>
+                <span class="w-4 h-4 rounded-full" style="background: #e0f7fa;"></span>
+            </button>
+            <button onclick="applyTheme(20)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                <span>Tema 20</span>
+                <span class="w-4 h-4 rounded-full" style="background: #ffffff;"></span>
+            </button>
+        </div>
+    </div>
     <!-- Floating Cart -->
     <!-- Adjust width and size of the cart to improve readability. We use a wider width (w-96) and larger max width (max-w-md) so that long product names and totals fit comfortably. -->
     <div id="floatingCart" class="fixed bottom-4 right-4 w-96 max-w-md bg-white rounded-xl shadow-2xl border-2 border-green-200 z-40 transition-all duration-300 hidden">
