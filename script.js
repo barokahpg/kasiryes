@@ -1230,7 +1230,10 @@ function removeDuplicateProducts() {
                     name: product.name,
                     price: itemPrice,
                     quantity: quantity,
-                    isWholesale: isWholesale
+                    isWholesale: isWholesale,
+                    // per-item discount fields (default no discount)
+                    discountValue: 0,
+                    discountType: 'percent'
                 });
             }
             
@@ -1335,7 +1338,10 @@ function removeDuplicateProducts() {
                 isService: true,
                 description: description || null,
                 // store modalPrice if provided for profit calculations
-                modalPrice: modalPrice > 0 ? modalPrice : undefined
+                modalPrice: modalPrice > 0 ? modalPrice : undefined,
+                // per-item discount fields for services (default no discount)
+                discountValue: 0,
+                discountType: 'percent'
             };
 
             cart.push(serviceItem);
@@ -1377,6 +1383,19 @@ function removeDuplicateProducts() {
                                     ${item.isWholesale ? '<span class="bg-blue-500 text-white px-1 rounded text-xs ml-1">🏪 GROSIR</span>' : ''}
                                 </div>
                                 ${item.description ? `<div class="text-xs text-purple-600 italic mt-1">"${item.description}"</div>` : ''}
+                                <!-- Per‑item discount controls: allow percentage or nominal discount per product -->
+                                <div class="mt-1 flex items-center space-x-1 text-xs text-gray-600">
+                                    <span>Diskon:</span>
+                                    <input type="number" value="${item.discountValue || 0}" min="0"
+                                           class="w-12 px-1 py-0 border rounded text-right text-xs"
+                                           onchange="updateItemDiscount('${itemId}', this.value)"
+                                           onclick="this.select()">
+                                    <select class="px-1 py-0 border rounded text-xs"
+                                            onchange="updateItemDiscountType('${itemId}', this.value)">
+                                        <option value="percent" ${item.discountType === 'percent' ? 'selected' : ''}>%</option>
+                                        <option value="amount" ${item.discountType === 'amount' ? 'selected' : ''}>Rp</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="flex items-center space-x-1 ml-2">
                                 <div class="font-bold ${isServiceItem ? 'text-purple-600' : item.isWholesale ? 'text-blue-600' : 'text-green-600'} text-sm">${formatCurrency(item.price * item.quantity)}</div>
@@ -1497,15 +1516,44 @@ function removeDuplicateProducts() {
         }
 
         function updateTotal() {
-            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const discount = parseInt(document.getElementById('discountInput').value) || 0;
-            const total = subtotal - (subtotal * discount / 100);
+            // First compute the intermediate total after per‑item discounts.  We also
+            // accumulate the original subtotal (before item discounts) for potential
+            // reporting purposes, but only the intermediate total is displayed as
+            // the subtotal to the user.
+            let intermediateTotal = 0;
+            cart.forEach(item => {
+                const itemSubtotal = item.price * item.quantity;
+                let itemDiscount = 0;
+                if (item.discountType === 'percent') {
+                    itemDiscount = itemSubtotal * (item.discountValue || 0) / 100;
+                } else {
+                    itemDiscount = item.discountValue || 0;
+                }
+                if (itemDiscount > itemSubtotal) itemDiscount = itemSubtotal;
+                intermediateTotal += (itemSubtotal - itemDiscount);
+            });
+            // Read global discount value and type from UI
+            const discountInputEl = document.getElementById('discountInput');
+            const discountTypeEl = document.getElementById('discountType');
+            const globalValue = discountInputEl ? parseInt(discountInputEl.value) || 0 : 0;
+            const globalType = discountTypeEl ? discountTypeEl.value : 'percent';
+            // Calculate global discount amount based on type, applied on the intermediate total
+            let globalAmount = 0;
+            if (globalType === 'percent') {
+                globalAmount = intermediateTotal * globalValue / 100;
+            } else {
+                globalAmount = globalValue;
+            }
+            if (globalAmount > intermediateTotal) {
+                globalAmount = intermediateTotal;
+            }
+            const total = intermediateTotal - globalAmount;
             
-            document.getElementById('subtotal').textContent = formatCurrency(subtotal);
+            document.getElementById('subtotal').textContent = formatCurrency(intermediateTotal);
             document.getElementById('total').textContent = formatCurrency(total);
 
-    // Perbarui notifikasi total bayar di daftar produk
-    updateTotalPayNotice();
+            // Perbarui notifikasi total bayar di daftar produk
+            updateTotalPayNotice();
         }
 
     /**
@@ -1517,11 +1565,33 @@ function removeDuplicateProducts() {
         const notice = document.getElementById('totalPayNotice');
         if (!notice) return;
         const amountSpan = document.getElementById('totalPayAmount');
-        // Hitung subtotal dan total seperti di updateTotal()
-        const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const discountInput = document.getElementById('discountInput');
-        const discount = discountInput ? parseInt(discountInput.value) || 0 : 0;
-        const total = subtotal - (subtotal * discount / 100);
+        // Hitung subtotal setelah diskon per item dan total keseluruhan seperti di updateTotal()
+        let intermediateTotal = 0;
+        cart.forEach(item => {
+            const itemSubtotal = item.price * item.quantity;
+            let itemDiscount = 0;
+            if (item.discountType === 'percent') {
+                itemDiscount = itemSubtotal * (item.discountValue || 0) / 100;
+            } else {
+                itemDiscount = item.discountValue || 0;
+            }
+            if (itemDiscount > itemSubtotal) itemDiscount = itemSubtotal;
+            intermediateTotal += (itemSubtotal - itemDiscount);
+        });
+        const discountInputEl = document.getElementById('discountInput');
+        const discountTypeEl = document.getElementById('discountType');
+        const globalValue = discountInputEl ? parseInt(discountInputEl.value) || 0 : 0;
+        const globalType = discountTypeEl ? discountTypeEl.value : 'percent';
+        let globalAmount = 0;
+        if (globalType === 'percent') {
+            globalAmount = intermediateTotal * globalValue / 100;
+        } else {
+            globalAmount = globalValue;
+        }
+        if (globalAmount > intermediateTotal) {
+            globalAmount = intermediateTotal;
+        }
+        const total = intermediateTotal - globalAmount;
         if (cart.length === 0) {
             // Sembunyikan pemberitahuan bila keranjang kosong
             notice.classList.add('hidden');
@@ -2453,9 +2523,31 @@ function removeDuplicateProducts() {
                 return;
             }
 
-            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const discount = parseInt(document.getElementById('discountInput').value) || 0;
-            const total = subtotal - (subtotal * discount / 100);
+            // Hitung total bayar dengan memperhitungkan diskon per item dan diskon global.
+            let intermediateTotal = 0;
+            cart.forEach(item => {
+                const itemSubtotal = item.price * item.quantity;
+                let itemDiscount = 0;
+                if (item.discountType === 'percent') {
+                    itemDiscount = itemSubtotal * (item.discountValue || 0) / 100;
+                } else {
+                    itemDiscount = item.discountValue || 0;
+                }
+                if (itemDiscount > itemSubtotal) itemDiscount = itemSubtotal;
+                intermediateTotal += (itemSubtotal - itemDiscount);
+            });
+            const discountInputEl = document.getElementById('discountInput');
+            const discountTypeEl = document.getElementById('discountType');
+            const globalValue = discountInputEl ? parseInt(discountInputEl.value) || 0 : 0;
+            const globalType = discountTypeEl ? discountTypeEl.value : 'percent';
+            let globalAmount = 0;
+            if (globalType === 'percent') {
+                globalAmount = intermediateTotal * globalValue / 100;
+            } else {
+                globalAmount = globalValue;
+            }
+            if (globalAmount > intermediateTotal) globalAmount = intermediateTotal;
+            const total = intermediateTotal - globalAmount;
 
             document.getElementById('unifiedPaymentTotal').textContent = formatCurrency(total);
             document.getElementById('unifiedPaymentAmount').value = '';
@@ -2484,9 +2576,31 @@ function removeDuplicateProducts() {
         }
 
         function calculateUnifiedPayment() {
-            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const discount = parseInt(document.getElementById('discountInput').value) || 0;
-            const total = subtotal - (subtotal * discount / 100);
+            // Hitung total dengan diskon per item + diskon global
+            let intermediateTotal = 0;
+            cart.forEach(item => {
+                const itemSubtotal = item.price * item.quantity;
+                let itemDiscount = 0;
+                if (item.discountType === 'percent') {
+                    itemDiscount = itemSubtotal * (item.discountValue || 0) / 100;
+                } else {
+                    itemDiscount = item.discountValue || 0;
+                }
+                if (itemDiscount > itemSubtotal) itemDiscount = itemSubtotal;
+                intermediateTotal += (itemSubtotal - itemDiscount);
+            });
+            const discountInputEl = document.getElementById('discountInput');
+            const discountTypeEl = document.getElementById('discountType');
+            const globalValue = discountInputEl ? parseInt(discountInputEl.value) || 0 : 0;
+            const globalType = discountTypeEl ? discountTypeEl.value : 'percent';
+            let globalAmount = 0;
+            if (globalType === 'percent') {
+                globalAmount = intermediateTotal * globalValue / 100;
+            } else {
+                globalAmount = globalValue;
+            }
+            if (globalAmount > intermediateTotal) globalAmount = intermediateTotal;
+            const total = intermediateTotal - globalAmount;
             const paid = parseInt(document.getElementById('unifiedPaymentAmount').value) || 0;
             
             const statusContainer = document.getElementById('paymentStatusContainer');
@@ -2544,9 +2658,36 @@ function removeDuplicateProducts() {
         }
 
         function processUnifiedPayment() {
-            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const discount = parseInt(document.getElementById('discountInput').value) || 0;
-            const total = subtotal - (subtotal * discount / 100);
+            // Hitung subtotal awal, total diskon per item, subtotal setelah diskon item, kemudian diskon global
+            let itemsSubtotal = 0;
+            let itemsDiscountTotal = 0;
+            let intermediateTotal = 0;
+            cart.forEach(item => {
+                const itemSubtotal = item.price * item.quantity;
+                itemsSubtotal += itemSubtotal;
+                let itemDiscount = 0;
+                if (item.discountType === 'percent') {
+                    itemDiscount = itemSubtotal * (item.discountValue || 0) / 100;
+                } else {
+                    itemDiscount = item.discountValue || 0;
+                }
+                if (itemDiscount > itemSubtotal) itemDiscount = itemSubtotal;
+                itemsDiscountTotal += itemDiscount;
+                intermediateTotal += (itemSubtotal - itemDiscount);
+            });
+            // Global discount
+            const discountInputEl = document.getElementById('discountInput');
+            const discountTypeEl = document.getElementById('discountType');
+            const globalValue = discountInputEl ? parseInt(discountInputEl.value) || 0 : 0;
+            const globalType = discountTypeEl ? discountTypeEl.value : 'percent';
+            let globalAmount = 0;
+            if (globalType === 'percent') {
+                globalAmount = intermediateTotal * globalValue / 100;
+            } else {
+                globalAmount = globalValue;
+            }
+            if (globalAmount > intermediateTotal) globalAmount = intermediateTotal;
+            const total = intermediateTotal - globalAmount;
             const paid = parseInt(document.getElementById('unifiedPaymentAmount').value) || 0;
 
             if (paid <= 0) {
@@ -2561,20 +2702,33 @@ function removeDuplicateProducts() {
                     alert('Mohon isi nama pelanggan untuk pembayaran hutang!');
                     return;
                 }
-                
-                processPartialPaymentUnified(subtotal, discount, total, paid, customerName);
+                processPartialPaymentUnified(itemsSubtotal, itemsDiscountTotal, intermediateTotal, globalValue, globalAmount, globalType, total, paid, customerName);
             } else {
                 // Full payment (exact or with change)
-                processFullPaymentUnified(subtotal, discount, total, paid);
+                processFullPaymentUnified(itemsSubtotal, itemsDiscountTotal, intermediateTotal, globalValue, globalAmount, globalType, total, paid);
             }
         }
 
-        function processFullPaymentUnified(subtotal, discount, total, paid) {
+        function processFullPaymentUnified(itemsSubtotal, itemsDiscountTotal, intermediateSubtotal, globalDiscountValue, globalDiscountAmount, globalDiscountType, total, paid) {
+            // Build a transaction object that includes item-level and global discount
             const transaction = {
                 id: Date.now(),
                 items: [...cart],
-                subtotal: subtotal,
-                discount: discount,
+                // Total of all items before any discounts
+                itemsSubtotal: itemsSubtotal,
+                // Total discount applied on individual items
+                itemsDiscountTotal: itemsDiscountTotal,
+                // Subtotal after item discounts but before global discount
+                subtotal: intermediateSubtotal,
+                // For backward compatibility store global discount value and type like previous discount fields
+                discount: globalDiscountValue,
+                discountValue: globalDiscountValue,
+                discountAmount: globalDiscountAmount,
+                discountType: globalDiscountType,
+                // Also keep named fields describing global discount
+                globalDiscountValue: globalDiscountValue,
+                globalDiscountAmount: globalDiscountAmount,
+                globalDiscountType: globalDiscountType,
                 total: total,
                 paid: paid,
                 change: paid - total,
@@ -2635,14 +2789,24 @@ function removeDuplicateProducts() {
             return;
         }
 
-        function processPartialPaymentUnified(subtotal, discount, total, paid, customerName) {
+        function processPartialPaymentUnified(itemsSubtotal, itemsDiscountTotal, intermediateSubtotal, globalDiscountValue, globalDiscountAmount, globalDiscountType, total, paid, customerName) {
             const debt = total - paid;
-
+            // Build transaction for partial payment including detailed discount fields
             const transaction = {
                 id: Date.now(),
                 items: [...cart],
-                subtotal: subtotal,
-                discount: discount,
+                itemsSubtotal: itemsSubtotal,
+                itemsDiscountTotal: itemsDiscountTotal,
+                subtotal: intermediateSubtotal,
+                // Compatibility fields for old discount reporting
+                discount: globalDiscountValue,
+                discountValue: globalDiscountValue,
+                discountAmount: globalDiscountAmount,
+                discountType: globalDiscountType,
+                // Explicit global discount fields
+                globalDiscountValue: globalDiscountValue,
+                globalDiscountAmount: globalDiscountAmount,
+                globalDiscountType: globalDiscountType,
                 total: total,
                 paid: paid,
                 debt: debt,
@@ -3805,16 +3969,30 @@ function removeDuplicateProducts() {
                     </div>
                     
                     <div style="margin-bottom: 10px; font-size: 14px;">
-                        ${transaction.items.map(item => `
+                        ${transaction.items.map(item => {
+                            // Calculate per-item discount and net values for receipt display
+                            const itemSubtotal = item.price * item.quantity;
+                            let itemDiscount = 0;
+                            if (item.discountType === 'percent') {
+                                itemDiscount = itemSubtotal * (item.discountValue || 0) / 100;
+                            } else {
+                                itemDiscount = item.discountValue || 0;
+                            }
+                            if (itemDiscount > itemSubtotal) itemDiscount = itemSubtotal;
+                            const itemNet = itemSubtotal - itemDiscount;
+                            const discountLabel = item.discountValue && item.discountValue > 0 ?
+                                (item.discountType === 'percent' ? ` (${item.discountValue}% off)` : ` (-${formatCurrency(item.discountValue)})`) : '';
+                            return `
                             <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
                                 <div style="flex: 1;">${item.name}${item.isService ? ' (JASA)' : ''}</div>
                             </div>
-                            ${item.description ? `<div style="font-size: 10px; color: #666; margin-bottom: 2px;">"${item.description}"</div>` : ''}
+                            ${item.description ? `<div style="font-size: 10px; color: #666; margin-bottom: 2px;">\"${item.description}\"</div>` : ''}
                             <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                <div>${item.quantity} x ${formatCurrency(item.price)}</div>
-                                <div>${formatCurrency(item.price * item.quantity)}</div>
+                                <div>${item.quantity} x ${formatCurrency(item.price)}${discountLabel}</div>
+                                <div>${formatCurrency(itemNet)}</div>
                             </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                         <div>================================</div>
                     </div>
                     
@@ -3823,12 +4001,16 @@ function removeDuplicateProducts() {
                             <div>Subtotal:</div>
                             <div>${formatCurrency(transaction.subtotal)}</div>
                         </div>
-                        ${transaction.discount > 0 ? `
+                        ${
+                            (transaction.discountAmount && transaction.discountAmount > 0) || (transaction.discount && transaction.discount > 0)
+                            ? `
                             <div style="display: flex; justify-content: space-between;">
-                                <div>Diskon (${transaction.discount}%):</div>
-                                <div>-${formatCurrency(transaction.subtotal * transaction.discount / 100)}</div>
+                                <div>Diskon${transaction.discountType === 'amount' ? '' : ' (' + (transaction.discountValue ?? transaction.discount) + '%)'}:</div>
+                                <div>-${formatCurrency(transaction.discountAmount ?? (transaction.subtotal * transaction.discount / 100))}</div>
                             </div>
-                        ` : ''}
+                            `
+                            : ''
+                        }
                         <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 18px;">
                             <div>TOTAL:</div>
                             <div>${formatCurrency(transaction.total)}</div>
@@ -4048,6 +4230,44 @@ async function exportDataToGoogleSheets(silent = false) {
         }
     }
 }
+
+        /**
+         * Update the discount value for a specific item in the cart.
+         * This function is called when the user changes the discount input
+         * associated with an item in the cart UI.  It casts the value to
+         * an integer and updates the item's discountValue, then refreshes
+         * the cart display and totals.
+         *
+         * @param {string|number} itemId The ID of the cart item (string for service items)
+         * @param {string|number} newDiscountValue The new discount value entered by the user
+         */
+        function updateItemDiscount(itemId, newDiscountValue) {
+            const item = cart.find(i => String(i.id) === String(itemId));
+            if (item) {
+                const val = parseInt(newDiscountValue) || 0;
+                item.discountValue = val;
+                updateCartDisplay();
+                updateTotal();
+            }
+        }
+
+        /**
+         * Update the discount type for a specific item in the cart.  The type can
+         * be either 'percent' or 'amount'.  After updating, the cart display
+         * and totals are refreshed.  This is used by the per-item discount
+         * selector in the cart UI.
+         *
+         * @param {string|number} itemId The ID of the cart item
+         * @param {string} newType The new discount type ('percent' or 'amount')
+         */
+        function updateItemDiscountType(itemId, newType) {
+            const item = cart.find(i => String(i.id) === String(itemId));
+            if (item) {
+                item.discountType = newType;
+                updateCartDisplay();
+                updateTotal();
+            }
+        }
 
 // Alias for backward compatibility: the client originally used an "export"
 // operation to synchronise local data with the Google Sheets backend.  In
