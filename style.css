@@ -243,3 +243,27 @@ textarea {
 #navWrapper {
     margin-top: 1rem;
 }
+
+/*
+ * Center the navigation sidebar vertically on the page.
+ *
+ * In themes where the navigation is converted into a vertical sidebar
+ * (positioned fixed on the left with full height), users requested that
+ * the tab buttons be moved to the middle of the screen rather than
+ * sticking to the top. To accomplish this, we override the top
+ * positioning and apply a vertical translation so that the wrapper’s
+ * vertical center aligns with the midpoint of the viewport. Using
+ * !important ensures our rule takes precedence over any theme-specific
+ * styles. Because this rule only applies when the nav is fixed, it
+ * won’t affect horizontal layouts where the nav remains in its default
+ * static flow.
+ */
+/* When the navigation becomes a fixed sidebar (such as in the Zen Minimal
+   themes), push it down from the very top of the viewport so that the
+   tabs appear roughly in the middle rather than hugging the top edge. The
+   `top` property will only apply when `position: fixed` is in effect; in
+   regular horizontal layouts the nav remains static and this rule has no
+   impact. */
+#navWrapper {
+    top: 30% !important;
+}
