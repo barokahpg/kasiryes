@@ -731,8 +731,13 @@ function attachSearchListeners() {
         // Tab switching
         function switchTab(tabName) {
             const tabContents = document.querySelectorAll('.tab-content');
-            tabContents.forEach(content => content.classList.add('hidden'));
+            // Hide all content panels and remove any existing fade-in classes
+            tabContents.forEach(content => {
+                content.classList.add('hidden');
+                content.classList.remove('fade-in');
+            });
 
+            // Reset all tab buttons to their inactive state
             const tabs = ['scannerTab', 'productsTab', 'historyTab', 'analysisTab'];
             tabs.forEach(tab => {
                 const tabElement = document.getElementById(tab);
@@ -740,12 +745,27 @@ function attachSearchListeners() {
                 tabElement.classList.add('text-gray-600', 'hover:text-green-600', 'hover:bg-green-50');
             });
 
-            document.getElementById(tabName + 'Content').classList.remove('hidden');
+            // Show the selected tab content and apply a fade-in effect
+            const targetContent = document.getElementById(tabName + 'Content');
+            if (targetContent) {
+                targetContent.classList.remove('hidden');
+                targetContent.classList.add('fade-in');
+                // Remove the fade-in class after the animation completes to avoid
+                // leaving it on the element, which could interfere with future
+                // animations.  The duration matches the CSS animation length.
+                setTimeout(() => {
+                    targetContent.classList.remove('fade-in');
+                }, 300);
+            }
 
+            // Highlight the active tab button
             const activeTab = document.getElementById(tabName + 'Tab');
-            activeTab.classList.add('bg-green-500', 'text-white');
-            activeTab.classList.remove('text-gray-600', 'hover:text-green-600', 'hover:bg-green-50');
+            if (activeTab) {
+                activeTab.classList.add('bg-green-500', 'text-white');
+                activeTab.classList.remove('text-gray-600', 'hover:text-green-600', 'hover:bg-green-50');
+            }
 
+            // Perform tab-specific actions
             if (tabName === 'analysis') {
                 updateAnalysis();
             } else if (tabName === 'history') {
@@ -4903,6 +4923,80 @@ const themes = [
             .bg-gradient-to-br {
                 background-image: none !important;
             }
+            /* Dark neutral override for Tema 1: dark colors and vertical sidebar layout */
+            body { background-color: #0f172a !important; color: #e2e8f0 !important; }
+            /* Sidebar and navigation layout */
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #1f2937 !important;
+                border-right: 1px solid #334155 !important;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #e2e8f0 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #334155 !important;
+            }
+            #navContainer button:hover {
+                background-color: #334155 !important;
+            }
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button {
+                width: 100% !important;
+            }
+            #contentContainer {
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            /* Override background colors */
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #1f2937 !important;
+            }
+            /* Override text colors */
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #f3f4f6 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #cbd5e1 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #334155 !important;
+            }
+            /* Card backgrounds and borders */
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #1f2937 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #334155 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
         `
     },
     {
@@ -4945,6 +5039,74 @@ const themes = [
             .stock-ok,
             .border-purple-300 {
                 border-color: #334155 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+            /* Dark blue override for Tema 2: dark palette and vertical sidebar layout */
+            body { background-color: #0a192f !important; color: #d1d5db !important; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #071e3d !important;
+                border-right: 1px solid #0e3a63 !important;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #d1d5db !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #0e3a63 !important;
+            }
+            #navContainer button:hover {
+                background-color: #0e3a63 !important;
+            }
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button { width: 100% !important; }
+            #contentContainer {
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #0e244a !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #e5e7eb !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #9ca3af !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #0e3a63 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #071e3d !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #0e3a63 !important;
             }
             .bg-gradient-to-br {
                 background-image: none !important;
@@ -5002,6 +5164,74 @@ const themes = [
             .bg-gradient-to-br {
                 background-image: none !important;
             }
+            /* Dark green override for Tema 3: dark palette and vertical sidebar layout */
+            body { background-color: #032d26 !important; color: #d1fae5 !important; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #064e3b !important;
+                border-right: 1px solid #065f46 !important;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #d1fae5 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #065f46 !important;
+            }
+            #navContainer button:hover {
+                background-color: #065f46 !important;
+            }
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button { width: 100% !important; }
+            #contentContainer {
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #064e3b !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #def7ec !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #6ee7b7 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #065f46 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #064e3b !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #065f46 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
         `
     },
     {
@@ -5051,6 +5281,74 @@ const themes = [
             .stock-ok,
             .border-purple-300 {
                 border-color: #ddd6fe !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+            /* Dark purple override for Tema 4: dark palette and vertical sidebar layout */
+            body { background-color: #2b1b4f !important; color: #e0e7ff !important; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #4c1d95 !important;
+                border-right: 1px solid #5b21b6 !important;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #e0e7ff !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #5b21b6 !important;
+            }
+            #navContainer button:hover {
+                background-color: #5b21b6 !important;
+            }
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button { width: 100% !important; }
+            #contentContainer {
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #4c1d95 !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #e0e7ff !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #c4b5fd !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #5b21b6 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #4c1d95 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #5b21b6 !important;
             }
             .bg-gradient-to-br {
                 background-image: none !important;
@@ -5108,6 +5406,74 @@ const themes = [
             .bg-gradient-to-br {
                 background-image: none !important;
             }
+            /* Dark teal override for Tema 5: dark palette and vertical sidebar layout */
+            body { background-color: #073642 !important; color: #d1e7e7 !important; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #0d3b3b !important;
+                border-right: 1px solid #134e4a !important;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #d1e7e7 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #134e4a !important;
+            }
+            #navContainer button:hover {
+                background-color: #134e4a !important;
+            }
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button { width: 100% !important; }
+            #contentContainer {
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #0d3b3b !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #d1e7e7 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #5eead4 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #134e4a !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #0d3b3b !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #134e4a !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
         `
     },
     {
@@ -5161,6 +5527,74 @@ const themes = [
             .bg-gradient-to-br {
                 background-image: none !important;
             }
+            /* Dark brown/orange override for Tema 6: dark palette and vertical sidebar layout */
+            body { background-color: #3f1f0b !important; color: #fde68a !important; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #7c2d12 !important;
+                border-right: 1px solid #9a3412 !important;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #fde68a !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #9a3412 !important;
+            }
+            #navContainer button:hover {
+                background-color: #9a3412 !important;
+            }
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button { width: 100% !important; }
+            #contentContainer {
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #7c2d12 !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #fde68a !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #fcd34d !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #9a3412 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #7c2d12 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #9a3412 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
         `
     },
     {
@@ -5202,6 +5636,74 @@ const themes = [
             .stock-ok,
             .border-purple-300 {
                 border-color: #374151 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+            /* High contrast override for Tema 7: dark palette and vertical sidebar layout */
+            body { background-color: #000000 !important; color: #f3f4f6 !important; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #111111 !important;
+                border-right: 1px solid #333333 !important;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #f3f4f6 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #333333 !important;
+            }
+            #navContainer button:hover {
+                background-color: #222222 !important;
+            }
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button { width: 100% !important; }
+            #contentContainer {
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #111111 !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #f3f4f6 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #eab308 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #333333 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #111111 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #333333 !important;
             }
             .bg-gradient-to-br {
                 background-image: none !important;
@@ -5259,6 +5761,74 @@ const themes = [
             .bg-gradient-to-br {
                 background-image: none !important;
             }
+            /* Dark minimal grey override for Tema 8: dark palette and vertical sidebar layout */
+            body { background-color: #1a1a2e !important; color: #e5e7eb !important; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #16192c !important;
+                border-right: 1px solid #262b46 !important;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #e5e7eb !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #262b46 !important;
+            }
+            #navContainer button:hover {
+                background-color: #262b46 !important;
+            }
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button { width: 100% !important; }
+            #contentContainer {
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #16192c !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #e5e7eb !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #a1a6c4 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #262b46 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #16192c !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #262b46 !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
         `
     },
     {
@@ -5308,6 +5878,74 @@ const themes = [
             .stock-ok,
             .border-purple-300 {
                 border-color: #fae8bd !important;
+            }
+            .bg-gradient-to-br {
+                background-image: none !important;
+            }
+            /* Dark warm brown override for Tema 9: dark palette and vertical sidebar layout */
+            body { background-color: #2d1e16 !important; color: #f5e0c3 !important; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #3f2c23 !important;
+                border-right: 1px solid #59351d !important;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #f5e0c3 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #59351d !important;
+            }
+            #navContainer button:hover {
+                background-color: #59351d !important;
+            }
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button { width: 100% !important; }
+            #contentContainer {
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white,
+            .bg-gray-50,
+            .bg-gray-100 {
+                background-color: #3f2c23 !important;
+            }
+            .text-gray-800,
+            .text-gray-700,
+            .text-gray-600 {
+                color: #f5e0c3 !important;
+            }
+            .text-gray-500,
+            .text-gray-400 {
+                color: #e9cfa6 !important;
+            }
+            .border-gray-200,
+            .border-gray-300 {
+                border-color: #59351d !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #3f2c23 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 {
+                border-color: #59351d !important;
             }
             .bg-gradient-to-br {
                 background-image: none !important;
@@ -5365,623 +6003,56 @@ const themes = [
             .bg-gradient-to-br {
                 background-image: none !important;
             }
-        `
-    }
-    ,
-    // Additional themes 11-20 that also modify layout such as sidebar, bottom bar etc.
-    {
-        name: 'Tema 11',
-        css: `
-            /* Modern Flat: neutral background, pill-shaped nav on top */
-            body {
-                background: #f5f7fa;
-            }
-            #navWrapper {
-                background-color: #ffffff !important;
-                box-shadow: none !important;
-                border-radius: 0.5rem !important;
-            }
-            #navContainer {
-                flex-direction: row !important;
-                justify-content: space-around !important;
-            }
-            #navContainer button {
-                margin: 0 0.25rem !important;
-                border-radius: 9999px !important;
-                background-color: #e0f2fe !important;
-                color: #0369a1 !important;
-                padding: 0.5rem 1rem !important;
-            }
-            #contentContainer {
-                margin-left: 0 !important;
-                margin-right: 0 !important;
-                margin-bottom: 0 !important;
-            }
-            /* Card palette for Modern Flat */
-            .bg-white,
-            .bg-gray-50,
-            .bg-gray-100 {
-                background-color: #ffffff !important;
-            }
-            .text-gray-800,
-            .text-gray-700,
-            .text-gray-600 {
-                color: #0f172a !important;
-            }
-            .text-gray-500,
-            .text-gray-400 {
-                color: #334155 !important;
-            }
-            .border-gray-200,
-            .border-gray-300 {
-                border-color: #e2e8f0 !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .from-purple-50,
-            .to-purple-100 {
-                background-image: none !important;
-                background-color: #ffffff !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .border-purple-300 {
-                border-color: #e2e8f0 !important;
-            }
-            .bg-gradient-to-br {
-                background-image: none !important;
-            }
-        `
-    },
-    {
-        name: 'Tema 12',
-        css: `
-            /* Dark Minimal: dark mode with vertical sidebar on the left */
-            body {
-                background-color: #121212;
-                color: #e0e0e0;
-            }
+            /* Dark pink override for Tema 10: dark palette and vertical sidebar layout */
+            body { background-color: #341f2e !important; color: #fce7f3 !important; }
             #navWrapper {
                 position: fixed;
-                top: 5rem;
+                top: 0;
                 left: 0;
-                width: 200px;
-                height: calc(100% - 5rem);
-                background-color: #1f1f1f;
-                box-shadow: inset -1px 0 0 #333333;
+                width: 120px;
+                height: 100%;
+                background-color: #5b2c51 !important;
+                border-right: 1px solid #7a3d63 !important;
                 z-index: 30;
             }
-            #navContainer {
-                flex-direction: column !important;
-            }
-            #navContainer button {
-                justify-content: flex-start !important;
-                padding: 0.75rem 1rem !important;
-                color: #e0e0e0 !important;
-                background-color: transparent !important;
-                border-bottom: 1px solid #333333 !important;
-            }
-            #navContainer button:hover {
-                background-color: #272727 !important;
-                color: #bb86fc !important;
-            }
-            #contentContainer {
-                margin-left: 200px !important;
-                margin-right: 0 !important;
-            }
-            /* Dark card palette */
-            .bg-white,
-            .bg-gray-50,
-            .bg-gray-100 {
-                background-color: #1e1e1e !important;
-            }
-            .text-gray-800,
-            .text-gray-700,
-            .text-gray-600 {
-                color: #e0e0e0 !important;
-            }
-            .text-gray-500,
-            .text-gray-400 {
-                color: #9e9e9e !important;
-            }
-            .border-gray-200,
-            .border-gray-300 {
-                border-color: #333333 !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .from-purple-50,
-            .to-purple-100 {
-                background-image: none !important;
-                background-color: #1e1e1e !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .border-purple-300 {
-                border-color: #333333 !important;
-            }
-            .bg-gradient-to-br {
-                background-image: none !important;
-            }
-        `
-    },
-    {
-        name: 'Tema 13',
-        css: `
-            /* Colorful Card: bright gradient and bottom navigation bar */
-            body {
-                background: linear-gradient(to bottom right, #f0fdfa, #fef6e4);
-            }
-            #navWrapper {
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                width: 100%;
-                height: 64px;
-                background-color: #0ea5e9;
-                border-top: 2px solid #0284c7;
-                display: flex;
-                align-items: center;
-                z-index: 30;
-            }
-            #navContainer {
-                flex-direction: row !important;
-                width: 100%;
-            }
-            #navContainer button {
-                flex: 1 1 0%;
-                color: #ffffff !important;
-                background-color: transparent !important;
-                border-radius: 0 !important;
-                border-right: 1px solid rgba(255,255,255,0.2) !important;
-            }
-            #navContainer button:last-child {
-                border-right: none !important;
-            }
-            #navContainer button:hover {
-                background-color: rgba(255,255,255,0.1) !important;
-            }
-            #contentContainer {
-                margin-left: 0 !important;
-                margin-right: 0 !important;
-                margin-bottom: 64px !important;
-            }
-            /* Colorful card palette */
-            .bg-white,
-            .bg-gray-50,
-            .bg-gray-100 {
-                background-color: #ffffff !important;
-            }
-            .text-gray-800,
-            .text-gray-700,
-            .text-gray-600 {
-                color: #0e7490 !important;
-            }
-            .text-gray-500,
-            .text-gray-400 {
-                color: #155e75 !important;
-            }
-            .border-gray-200,
-            .border-gray-300 {
-                border-color: #bae6fd !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .from-purple-50,
-            .to-purple-100 {
-                background-image: none !important;
-                background-color: #e0f2fe !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .border-purple-300 {
-                border-color: #bae6fd !important;
-            }
-            .bg-gradient-to-br {
-                background-image: none !important;
-            }
-        `
-    },
-    {
-        name: 'Tema 14',
-        css: `
-            /* Zen Minimal: light theme with left sidebar */
-            body {
-                background-color: #fafafa;
-            }
-            #navWrapper {
-                position: fixed;
-                top: 5rem;
-                left: 0;
-                width: 170px;
-                height: calc(100% - 5rem);
-                background-color: #ffffff;
-                border-right: 1px solid #e5e7eb;
-                z-index: 30;
-            }
-            #navContainer {
-                flex-direction: column !important;
-            }
+            #navContainer { flex-direction: column !important; }
             #navContainer button {
                 justify-content: flex-start !important;
                 padding: 0.5rem 1rem !important;
-                color: #334155 !important;
+                color: #fce7f3 !important;
                 background-color: transparent !important;
-                border-bottom: 1px solid #e5e7eb !important;
+                border-bottom: 1px solid #7a3d63 !important;
             }
             #navContainer button:hover {
-                background-color: #f1f5f9 !important;
+                background-color: #7a3d63 !important;
             }
-            #contentContainer {
-                margin-left: 170px !important;
-                margin-right: 0 !important;
-            }
-            /* Zen card palette */
-            .bg-white,
-            .bg-gray-50,
-            .bg-gray-100 {
-                background-color: #ffffff !important;
-            }
-            .text-gray-800,
-            .text-gray-700,
-            .text-gray-600 {
-                color: #1e293b !important;
-            }
-            .text-gray-500,
-            .text-gray-400 {
-                color: #475569 !important;
-            }
-            .border-gray-200,
-            .border-gray-300 {
-                border-color: #e5e7eb !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .from-purple-50,
-            .to-purple-100 {
-                background-image: none !important;
-                background-color: #f1f5f9 !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .border-purple-300 {
-                border-color: #e5e7eb !important;
-            }
-            .bg-gradient-to-br {
-                background-image: none !important;
-            }
-        `
-    },
-    {
-        name: 'Tema 15',
-        css: `
-            /* Retro: neon accents and dark gradients */
-            body {
-                background: linear-gradient(135deg, #10002b, #240046);
-                color: #ffffff;
-            }
-            #navWrapper {
-                background-color: transparent !important;
-            }
-            #navContainer {
-                background-color: #3a0ca3;
-                flex-direction: row !important;
-            }
-            #navContainer button {
-                color: #ffffff !important;
-                background-color: transparent !important;
-                border-radius: 0 !important;
-                border-bottom: 2px solid transparent !important;
-            }
-            #navContainer button:hover {
-                border-bottom-color: #4cc9f0 !important;
-            }
-            #contentContainer {
-                margin-left: 0 !important;
-                margin-right: 0 !important;
-            }
-            /* Retro card palette */
-            .bg-white,
-            .bg-gray-50,
-            .bg-gray-100 {
-                background-color: rgba(26, 10, 45, 0.8) !important;
-            }
-            .text-gray-800,
-            .text-gray-700,
-            .text-gray-600 {
-                color: #f8f9fa !important;
-            }
-            .text-gray-500,
-            .text-gray-400 {
-                color: #e0aaff !important;
-            }
-            .border-gray-200,
-            .border-gray-300 {
-                border-color: #3a0ca3 !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .from-purple-50,
-            .to-purple-100 {
-                background-image: none !important;
-                background-color: rgba(26, 10, 45, 0.7) !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .border-purple-300 {
-                border-color: #7209b7 !important;
-            }
-            .bg-gradient-to-br {
-                background-image: none !important;
-            }
-        `
-    },
-    {
-        name: 'Tema 16',
-        css: `
-            /* Compact: narrow sidebar with icons only */
-            body {
-                background-color: #f5f5f5;
-            }
-            #navWrapper {
-                position: fixed;
-                top: 5rem;
-                left: 0;
-                width: 80px;
-                height: calc(100% - 5rem);
-                background-color: #ffffff;
-                border-right: 1px solid #e5e7eb;
-                z-index: 30;
-            }
-            #navContainer {
+            #navContainer > div {
                 flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
             }
-            #navContainer button {
-                justify-content: center !important;
-                padding: 1rem 0 !important;
-            }
-            #navContainer button span {
-                display: none !important;
-            }
+            #navContainer > div button { width: 100% !important; }
             #contentContainer {
-                margin-left: 80px !important;
-                margin-right: 0 !important;
-            }
-            /* Compact card palette */
-            .bg-white,
-            .bg-gray-50,
-            .bg-gray-100 {
-                background-color: #ffffff !important;
-            }
-            .text-gray-800,
-            .text-gray-700,
-            .text-gray-600 {
-                color: #0f172a !important;
-            }
-            .text-gray-500,
-            .text-gray-400 {
-                color: #475569 !important;
-            }
-            .border-gray-200,
-            .border-gray-300 {
-                border-color: #e5e7eb !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .from-purple-50,
-            .to-purple-100 {
-                background-image: none !important;
-                background-color: #f1f5f9 !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .border-purple-300 {
-                border-color: #e5e7eb !important;
-            }
-            .bg-gradient-to-br {
-                background-image: none !important;
-            }
-        `
-    },
-    {
-        name: 'Tema 17',
-        css: `
-            /* Side Tab Right: vertical navigation on the right */
-            body {
-                background-color: #fdfdfd;
-            }
-            #navWrapper {
-                position: fixed;
-                top: 5rem;
-                right: 0;
-                width: 200px;
-                height: calc(100% - 5rem);
-                background-color: #ffffff;
-                border-left: 1px solid #e5e7eb;
-                z-index: 30;
-            }
-            #navContainer {
-                flex-direction: column !important;
-            }
-            #navContainer button {
-                justify-content: flex-start !important;
-                padding: 0.5rem 1rem !important;
-                color: #1f2937 !important;
-                background-color: transparent !important;
-                border-bottom: 1px solid #e5e7eb !important;
-            }
-            #navContainer button:hover {
-                background-color: #f1f5f9 !important;
-            }
-            #contentContainer {
-                margin-left: 0 !important;
-                margin-right: 200px !important;
-            }
-            /* Side Tab card palette */
-            .bg-white,
-            .bg-gray-50,
-            .bg-gray-100 {
-                background-color: #ffffff !important;
-            }
-            .text-gray-800,
-            .text-gray-700,
-            .text-gray-600 {
-                color: #1e293b !important;
-            }
-            .text-gray-500,
-            .text-gray-400 {
-                color: #475569 !important;
-            }
-            .border-gray-200,
-            .border-gray-300 {
-                border-color: #e5e7eb !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .from-purple-50,
-            .to-purple-100 {
-                background-image: none !important;
-                background-color: #f1f5f9 !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .border-purple-300 {
-                border-color: #e5e7eb !important;
-            }
-            .bg-gradient-to-br {
-                background-image: none !important;
-            }
-        `
-    },
-    {
-        name: 'Tema 18',
-        css: `
-            /* Material Design: deep purple top bar and subtle cards */
-            body {
-                background-color: #f5f5f5;
-            }
-            #navWrapper {
-                position: static;
-                width: 100%;
-                background-color: #6200ea !important;
-                border-radius: 0 !important;
-                box-shadow: none !important;
-            }
-            #navContainer {
-                flex-direction: row !important;
-            }
-            #navContainer button {
-                color: #ffffff !important;
-                background-color: transparent !important;
-                border-radius: 0 !important;
-            }
-            #navContainer button:hover {
-                background-color: rgba(255,255,255,0.1) !important;
-            }
-            #contentContainer {
-                margin-left: 0 !important;
-                margin-right: 0 !important;
-            }
-            /* Material card palette */
-            .bg-white,
-            .bg-gray-50,
-            .bg-gray-100 {
-                background-color: #ffffff !important;
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
-            }
-            .text-gray-800,
-            .text-gray-700,
-            .text-gray-600 {
-                color: #1e1e1e !important;
-            }
-            .text-gray-500,
-            .text-gray-400 {
-                color: #6b6b6b !important;
-            }
-            .border-gray-200,
-            .border-gray-300 {
-                border-color: #d1c4e9 !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .from-purple-50,
-            .to-purple-100 {
-                background-image: none !important;
-                background-color: #ffffff !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .border-purple-300 {
-                border-color: #d1c4e9 !important;
-            }
-            .bg-gradient-to-br {
-                background-image: none !important;
-            }
-        `
-    },
-    {
-        name: 'Tema 19',
-        css: `
-            /* Glassmorphism: translucent panels and blurred backgrounds */
-            body {
-                background: linear-gradient(to bottom right, #eef2f3, #8e9eab);
-                color: #ffffff;
-            }
-            #navWrapper {
-                backdrop-filter: blur(10px);
-                background: rgba(255, 255, 255, 0.3) !important;
-                border-radius: 1rem !important;
-                border: 1px solid rgba(255, 255, 255, 0.4) !important;
-            }
-            #navContainer {
-                flex-direction: row !important;
-            }
-            #navContainer button {
-                color: #ffffff !important;
-                background-color: transparent !important;
-            }
-            #navContainer button:hover {
-                background-color: rgba(255,255,255,0.1) !important;
-            }
-            #contentContainer {
-                margin-left: 0 !important;
+                margin-left: 120px !important;
                 margin-right: 0 !important;
             }
             .bg-white,
             .bg-gray-50,
             .bg-gray-100 {
-                background-color: rgba(255, 255, 255, 0.3) !important;
-                backdrop-filter: blur(10px) !important;
-                border: 1px solid rgba(255, 255, 255, 0.4) !important;
+                background-color: #5b2c51 !important;
             }
             .text-gray-800,
             .text-gray-700,
             .text-gray-600 {
-                color: #ffffff !important;
+                color: #fce7f3 !important;
             }
             .text-gray-500,
             .text-gray-400 {
-                color: #d1d5db !important;
+                color: #fbcfe8 !important;
             }
             .border-gray-200,
             .border-gray-300 {
-                border-color: rgba(255, 255, 255, 0.4) !important;
+                border-color: #7a3d63 !important;
             }
             .stock-critical,
             .stock-low,
@@ -5989,81 +6060,13 @@ const themes = [
             .from-purple-50,
             .to-purple-100 {
                 background-image: none !important;
-                background-color: rgba(255, 255, 255, 0.3) !important;
-                backdrop-filter: blur(10px) !important;
+                background-color: #5b2c51 !important;
             }
             .stock-critical,
             .stock-low,
             .stock-ok,
             .border-purple-300 {
-                border-color: rgba(255, 255, 255, 0.4) !important;
-            }
-            .bg-gradient-to-br {
-                background-image: none !important;
-            }
-        `
-    },
-    {
-        name: 'Tema 20',
-        css: `
-            /* High Contrast Light: bright accents and strong contrast */
-            body {
-                background-color: #ffffff;
-                color: #111827;
-            }
-            #navWrapper {
-                background-color: #2563eb !important;
-                border-radius: 0 !important;
-            }
-            #navContainer {
-                flex-direction: row !important;
-            }
-            #navContainer button {
-                color: #ffffff !important;
-                background-color: transparent !important;
-                border-right: 1px solid rgba(255, 255, 255, 0.3) !important;
-            }
-            #navContainer button:last-child {
-                border-right: none !important;
-            }
-            #navContainer button:hover {
-                background-color: rgba(255,255,255,0.1) !important;
-            }
-            #contentContainer {
-                margin-left: 0 !important;
-                margin-right: 0 !important;
-            }
-            .bg-white,
-            .bg-gray-50,
-            .bg-gray-100 {
-                background-color: #ffffff !important;
-            }
-            .text-gray-800,
-            .text-gray-700,
-            .text-gray-600 {
-                color: #111827 !important;
-            }
-            .text-gray-500,
-            .text-gray-400 {
-                color: #4b5563 !important;
-            }
-            .border-gray-200,
-            .border-gray-300 {
-                border-color: #d1d5db !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .from-purple-50,
-            .to-purple-100 {
-                background-image: none !important;
-                background-color: #ffffff !important;
-            }
-            .stock-critical,
-            .stock-low,
-            .stock-ok,
-            .border-purple-300 {
-                border-color: #d1d5db !important;
+                border-color: #7a3d63 !important;
             }
             .bg-gradient-to-br {
                 background-image: none !important;
@@ -6071,6 +6074,661 @@ const themes = [
         `
     }
 ];
+// Append additional Zen Minimal color variations (Themes 21-30) by injecting after the primary theme list.
+const additionalThemes = [
+    {
+        name: 'Tema 21',
+        css: `
+            /* Zen Minimal Variation: Pastel Blue */
+            body { background-color: #eff6ff; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #ffffff;
+                border-right: 1px solid #bfdbfe;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #1e3a8a !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #bfdbfe !important;
+            }
+            #navContainer button:hover {
+                background-color: #dbeafe !important;
+            }
+            /* For Zen Minimal layouts: orient the nav buttons vertically and disable horizontal overflow */
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button {
+                width: 100% !important;
+            }
+            #contentContainer {
+                /* Match Zen Minimal layout: content starts after a 120px sidebar */
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white { background-color: #ffffff !important; }
+            .bg-gray-50 { background-color: #eff6ff !important; }
+            .bg-gray-100 { background-color: #dbeafe !important; }
+            .text-gray-800 { color: #1e3a8a !important; }
+            .text-gray-700 { color: #1d4ed8 !important; }
+            .text-gray-600 { color: #2563eb !important; }
+            .text-gray-500,
+            .text-gray-400 { color: #3b82f6 !important; }
+            .border-gray-200,
+            .border-gray-300 { border-color: #bfdbfe !important; }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #eff6ff !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 { border-color: #bfdbfe !important; }
+            .bg-gradient-to-br { background-image: none !important; }
+        `
+    },
+    {
+        name: 'Tema 22',
+        css: `
+            /* Zen Minimal Variation: Pastel Green */
+            body { background-color: #f0fdf4; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #ffffff;
+                border-right: 1px solid #bbf7d0;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #064e3b !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #bbf7d0 !important;
+            }
+            #navContainer button:hover {
+                background-color: #dcfce7 !important;
+            }
+            /* For Zen Minimal layouts: orient the nav buttons vertically and disable horizontal overflow */
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button {
+                width: 100% !important;
+            }
+            #contentContainer {
+                /* Align main content next to a 120px sidebar */
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white { background-color: #ffffff !important; }
+            .bg-gray-50 { background-color: #f0fdf4 !important; }
+            .bg-gray-100 { background-color: #dcfce7 !important; }
+            .text-gray-800 { color: #064e3b !important; }
+            .text-gray-700 { color: #047857 !important; }
+            .text-gray-600 { color: #065f46 !important; }
+            .text-gray-500,
+            .text-gray-400 { color: #059669 !important; }
+            .border-gray-200,
+            .border-gray-300 { border-color: #bbf7d0 !important; }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #f0fdf4 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 { border-color: #bbf7d0 !important; }
+            .bg-gradient-to-br { background-image: none !important; }
+        `
+    },
+    {
+        name: 'Tema 23',
+        css: `
+            /* Zen Minimal Variation: Pastel Purple */
+            body { background-color: #faf5ff; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #ffffff;
+                border-right: 1px solid #ddd6fe;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #4c1d95 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #ddd6fe !important;
+            }
+            #navContainer button:hover {
+                background-color: #ede9fe !important;
+            }
+            /* For Zen Minimal layouts: orient the nav buttons vertically and disable horizontal overflow */
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button {
+                width: 100% !important;
+            }
+            #contentContainer {
+                /* Align main content next to a 120px sidebar */
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white { background-color: #ffffff !important; }
+            .bg-gray-50 { background-color: #faf5ff !important; }
+            .bg-gray-100 { background-color: #ede9fe !important; }
+            .text-gray-800 { color: #4c1d95 !important; }
+            .text-gray-700 { color: #5b21b6 !important; }
+            .text-gray-600 { color: #6b21a8 !important; }
+            .text-gray-500,
+            .text-gray-400 { color: #7c3aed !important; }
+            .border-gray-200,
+            .border-gray-300 { border-color: #ddd6fe !important; }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #faf5ff !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 { border-color: #ddd6fe !important; }
+            .bg-gradient-to-br { background-image: none !important; }
+        `
+    },
+    {
+        name: 'Tema 24',
+        css: `
+            /* Zen Minimal Variation: Pastel Orange */
+            body { background-color: #fff7ed; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #ffffff;
+                border-right: 1px solid #fed7aa;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #7c2d12 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #fed7aa !important;
+            }
+            #navContainer button:hover {
+                background-color: #ffedd5 !important;
+            }
+            /* For Zen Minimal layouts: orient the nav buttons vertically and disable horizontal overflow */
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button {
+                width: 100% !important;
+            }
+            #contentContainer {
+                /* Align main content next to a 120px sidebar */
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white { background-color: #ffffff !important; }
+            .bg-gray-50 { background-color: #fff7ed !important; }
+            .bg-gray-100 { background-color: #ffedd5 !important; }
+            .text-gray-800 { color: #7c2d12 !important; }
+            .text-gray-700 { color: #9a3412 !important; }
+            .text-gray-600 { color: #c2410c !important; }
+            .text-gray-500,
+            .text-gray-400 { color: #ea580c !important; }
+            .border-gray-200,
+            .border-gray-300 { border-color: #fed7aa !important; }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #fff7ed !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 { border-color: #fed7aa !important; }
+            .bg-gradient-to-br { background-image: none !important; }
+        `
+    },
+    {
+        name: 'Tema 25',
+        css: `
+            /* Zen Minimal Variation: Pastel Yellow */
+            body { background-color: #fffbeb; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #ffffff;
+                border-right: 1px solid #fde68a;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #92400e !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #fde68a !important;
+            }
+            #navContainer button:hover {
+                background-color: #fef3c7 !important;
+            }
+            /* For Zen Minimal layouts: orient the nav buttons vertically and disable horizontal overflow */
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button {
+                width: 100% !important;
+            }
+            #contentContainer {
+                /* Align main content next to a 120px sidebar */
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white { background-color: #ffffff !important; }
+            .bg-gray-50 { background-color: #fffbeb !important; }
+            .bg-gray-100 { background-color: #fef3c7 !important; }
+            .text-gray-800 { color: #92400e !important; }
+            .text-gray-700 { color: #b45309 !important; }
+            .text-gray-600 { color: #d97706 !important; }
+            .text-gray-500,
+            .text-gray-400 { color: #eab308 !important; }
+            .border-gray-200,
+            .border-gray-300 { border-color: #fde68a !important; }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #fffbeb !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 { border-color: #fde68a !important; }
+            .bg-gradient-to-br { background-image: none !important; }
+        `
+    },
+    {
+        name: 'Tema 26',
+        css: `
+            /* Zen Minimal Variation: Pastel Pink */
+            body { background-color: #fdf2f8; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #ffffff;
+                border-right: 1px solid #fbcfe8;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #9d174d !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #fbcfe8 !important;
+            }
+            #navContainer button:hover {
+                background-color: #fce7f3 !important;
+            }
+            /* For Zen Minimal layouts: orient the nav buttons vertically and disable horizontal overflow */
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button {
+                width: 100% !important;
+            }
+            #contentContainer {
+                /* Align main content next to a 120px sidebar */
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white { background-color: #ffffff !important; }
+            .bg-gray-50 { background-color: #fdf2f8 !important; }
+            .bg-gray-100 { background-color: #fce7f3 !important; }
+            .text-gray-800 { color: #9d174d !important; }
+            .text-gray-700 { color: #be185d !important; }
+            .text-gray-600 { color: #e11d48 !important; }
+            .text-gray-500,
+            .text-gray-400 { color: #db2777 !important; }
+            .border-gray-200,
+            .border-gray-300 { border-color: #fbcfe8 !important; }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #fdf2f8 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 { border-color: #fbcfe8 !important; }
+            .bg-gradient-to-br { background-image: none !important; }
+        `
+    },
+    {
+        name: 'Tema 27',
+        css: `
+            /* Zen Minimal Variation: Earth Tones */
+            body { background-color: #f3eee9; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #ffffff;
+                border-right: 1px solid #d7ccc8;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #7f5539 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #d7ccc8 !important;
+            }
+            #navContainer button:hover {
+                background-color: #e8dad4 !important;
+            }
+            /* For Zen Minimal layouts: orient the nav buttons vertically and disable horizontal overflow */
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button {
+                width: 100% !important;
+            }
+            #contentContainer {
+                /* Align main content next to a 120px sidebar */
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white { background-color: #ffffff !important; }
+            .bg-gray-50 { background-color: #f9f5f0 !important; }
+            .bg-gray-100 { background-color: #f3eee9 !important; }
+            .text-gray-800 { color: #7f5539 !important; }
+            .text-gray-700 { color: #9a6c52 !important; }
+            .text-gray-600 { color: #b28a6a !important; }
+            .text-gray-500,
+            .text-gray-400 { color: #cba682 !important; }
+            .border-gray-200,
+            .border-gray-300 { border-color: #d7ccc8 !important; }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #f3eee9 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 { border-color: #d7ccc8 !important; }
+            .bg-gradient-to-br { background-image: none !important; }
+        `
+    },
+    {
+        name: 'Tema 28',
+        css: `
+            /* Zen Minimal Variation: Teal */
+            body { background-color: #f0fdfa; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #ffffff;
+                border-right: 1px solid #99f6e4;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #0f766e !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #99f6e4 !important;
+            }
+            #navContainer button:hover {
+                background-color: #ccfbf1 !important;
+            }
+            /* For Zen Minimal layouts: orient the nav buttons vertically and disable horizontal overflow */
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button {
+                width: 100% !important;
+            }
+            #contentContainer {
+                /* Align main content next to a 120px sidebar */
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white { background-color: #ffffff !important; }
+            .bg-gray-50 { background-color: #f0fdfa !important; }
+            .bg-gray-100 { background-color: #ccfbf1 !important; }
+            .text-gray-800 { color: #0f766e !important; }
+            .text-gray-700 { color: #115e59 !important; }
+            .text-gray-600 { color: #134e4a !important; }
+            .text-gray-500,
+            .text-gray-400 { color: #0d9488 !important; }
+            .border-gray-200,
+            .border-gray-300 { border-color: #99f6e4 !important; }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #f0fdfa !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 { border-color: #99f6e4 !important; }
+            .bg-gradient-to-br { background-image: none !important; }
+        `
+    },
+    {
+        name: 'Tema 29',
+        css: `
+            /* Zen Minimal Variation: Gray */
+            body { background-color: #f8fafc; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #ffffff;
+                border-right: 1px solid #d1d5db;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #374151 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #d1d5db !important;
+            }
+            #navContainer button:hover {
+                background-color: #e5e7eb !important;
+            }
+            /* For Zen Minimal layouts: orient the nav buttons vertically and disable horizontal overflow */
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button {
+                width: 100% !important;
+            }
+            #contentContainer {
+                /* Align main content next to a 120px sidebar */
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white { background-color: #ffffff !important; }
+            .bg-gray-50 { background-color: #f8fafc !important; }
+            .bg-gray-100 { background-color: #e5e7eb !important; }
+            .text-gray-800 { color: #374151 !important; }
+            .text-gray-700 { color: #475569 !important; }
+            .text-gray-600 { color: #64748b !important; }
+            .text-gray-500,
+            .text-gray-400 { color: #6b7280 !important; }
+            .border-gray-200,
+            .border-gray-300 { border-color: #d1d5db !important; }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #f8fafc !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 { border-color: #d1d5db !important; }
+            .bg-gradient-to-br { background-image: none !important; }
+        `
+    },
+    {
+        name: 'Tema 30',
+        css: `
+            /* Zen Minimal Variation: Blue Gray */
+            body { background-color: #f3f4f6; }
+            #navWrapper {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 120px;
+                height: 100%;
+                background-color: #ffffff;
+                border-right: 1px solid #cbd5e1;
+                z-index: 30;
+            }
+            #navContainer { flex-direction: column !important; }
+            #navContainer button {
+                justify-content: flex-start !important;
+                padding: 0.5rem 1rem !important;
+                color: #4b5563 !important;
+                background-color: transparent !important;
+                border-bottom: 1px solid #cbd5e1 !important;
+            }
+            #navContainer button:hover {
+                background-color: #e5e7eb !important;
+            }
+            /* For Zen Minimal layouts: orient the nav buttons vertically and disable horizontal overflow */
+            #navContainer > div {
+                flex-direction: column !important;
+                overflow-x: hidden !important;
+                border-bottom: none !important;
+            }
+            #navContainer > div button {
+                width: 100% !important;
+            }
+            #contentContainer {
+                /* Align main content next to a 120px sidebar */
+                margin-left: 120px !important;
+                margin-right: 0 !important;
+            }
+            .bg-white { background-color: #ffffff !important; }
+            .bg-gray-50 { background-color: #f3f4f6 !important; }
+            .bg-gray-100 { background-color: #e5e7eb !important; }
+            .text-gray-800 { color: #4b5563 !important; }
+            .text-gray-700 { color: #374151 !important; }
+            .text-gray-600 { color: #1f2937 !important; }
+            .text-gray-500,
+            .text-gray-400 { color: #6b7280 !important; }
+            .border-gray-200,
+            .border-gray-300 { border-color: #cbd5e1 !important; }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .from-purple-50,
+            .to-purple-100 {
+                background-image: none !important;
+                background-color: #f3f4f6 !important;
+            }
+            .stock-critical,
+            .stock-low,
+            .stock-ok,
+            .border-purple-300 { border-color: #cbd5e1 !important; }
+            .bg-gradient-to-br { background-image: none !important; }
+        `
+    }
+];
+// Extend the themes array with Zen Minimal variations
+themes.push(...additionalThemes);
 
 /**
  * Toggle the visibility of the theme selection menu. When called, this
@@ -6096,7 +6754,22 @@ window.toggleThemeMenu = toggleThemeMenu;
  * @param {number} idx The 1-based index of the theme to apply.
  */
 function applyTheme(idx) {
-    const index = parseInt(idx, 10) - 1;
+    // Determine the zero-based index within the themes array.  The first 10
+    // themes map directly (1→0, 2→1, ..., 10→9).  Additional Zen Minimal
+    // variants are numbered 21–30 in the UI but occupy positions 10–19
+    // internally.  For these, subtract 11 from the requested number to map
+    // 21→10, 22→11, ..., 30→19.  If other numbers are passed they map
+    // normally or are ignored when out of range.
+    const idNum = parseInt(idx, 10);
+    let index;
+    if (isNaN(idNum)) {
+        return;
+    }
+    if (idNum >= 21) {
+        index = idNum - 11;
+    } else {
+        index = idNum - 1;
+    }
     if (index < 0 || index >= themes.length) return;
     // Remove old theme
     const oldStyle = document.getElementById('activeTheme');
