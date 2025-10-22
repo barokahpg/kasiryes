@@ -18,6 +18,28 @@ let holdData = [];
 // resetting to "Hari Ini" will reset this offset back to 0.
 let analysisDateOffset = 0;
 
+/**
+ * Queue of delta changes (e.g., add/update/delete operations) that need to be
+ * sent to Google Sheets when the device is online. Each entry is an object
+ * with properties: { action: 'add'|'update'|'delete', objectType: string,
+ * row?: Array, id?: any }.
+ *
+ * Deltas are persisted in localStorage under the key 'kasir_pending_deltas'
+ * so that offline changes are not lost across page reloads or app restarts.
+ * When network connectivity is restored, the application will process this
+ * queue and send each delta sequentially to the Apps Script endpoint.
+ */
+let pendingDeltas = [];
+try {
+    const storedDeltas = localStorage.getItem('kasir_pending_deltas');
+    if (storedDeltas) {
+        pendingDeltas = JSON.parse(storedDeltas) || [];
+    }
+} catch (err) {
+    // Ignore parsing errors or localStorage being unavailable
+    pendingDeltas = [];
+}
+
 // ---------------------------------------------------------------------------
 // Offline sync state
 //
@@ -107,20 +129,31 @@ async function syncPendingData(showLoader = false) {
         return;
     }
     try {
-        // If showLoader is true, show the overlay; otherwise, run silent
-        if (showLoader) {
-            showLoading('Menyinkronkan data...');
-        }
-        // Perform an incremental sync to avoid overwriting entire sheets.  This
-        // sends each product, sale and debt row individually via the Apps
-        // Script update endpoint.  Use silent mode to suppress alerts.
-        await syncDataIncrementally(true);
-        // Clear pending flag after successful sync
-        syncPending = false;
-        try {
-            localStorage.setItem('kasir_sync_pending', 'false');
-        } catch (err) {
-            // ignore
+        // First attempt to process any queued delta operations.  These are
+        // operations that were recorded while offline (e.g. adding a product,
+        // updating stock, or deleting a row).  If processing fails, the
+        // pending deltas remain in the queue and incremental sync is skipped.
+        await processPendingDeltas(true);
+        // Only perform a full incremental sync if there are still
+        // unsynchronised changes marked by syncPending and the delta queue
+        // has been fully processed.  This avoids rewriting the entire
+        // dataset unnecessarily when queued deltas have already been sent.
+        if (pendingDeltas.length === 0) {
+            // If showLoader is true, show the overlay; otherwise, run silent
+            if (showLoader) {
+                showLoading('Menyinkronkan data...');
+            }
+            // Perform an incremental sync to avoid overwriting entire sheets.  This
+            // sends each product, sale and debt row individually via the Apps
+            // Script update endpoint.  Use silent mode to suppress alerts.
+            await syncDataIncrementally(true);
+            // Clear pending flag after successful sync
+            syncPending = false;
+            try {
+                localStorage.setItem('kasir_sync_pending', 'false');
+            } catch (err) {
+                // ignore
+            }
         }
     } catch (err) {
         console.error('Automatic sync failed:', err);
@@ -132,11 +165,78 @@ async function syncPendingData(showLoader = false) {
     }
 }
 
+/**
+ * Process any queued delta operations by sending them sequentially to the
+ * Google Apps Script endpoint.  This function will stop processing on the
+ * first error encountered, leaving remaining deltas in the queue for the
+ * next attempt.  After all deltas have been processed successfully, the
+ * queue is cleared and persisted to localStorage.
+ *
+ * @param {boolean} silent If true, suppress alerts and loading overlays.
+ */
+async function processPendingDeltas(silent = false) {
+    if (!pendingDeltas || pendingDeltas.length === 0) {
+        return;
+    }
+    // Do nothing if offline
+    if (!navigator.onLine) {
+        return;
+    }
+    // Ensure the user is logged in (for web version) before sending deltas
+    try {
+        const loggedIn = localStorage.getItem('loggedIn') === 'true';
+        if (!loggedIn) {
+            return;
+        }
+    } catch (err) {
+        // Assume not logged in if error
+        return;
+    }
+    if (!silent) {
+        showLoading('Menyinkronkan perubahan offline...');
+    }
+    try {
+        for (let i = 0; i < pendingDeltas.length; i++) {
+            const delta = pendingDeltas[i];
+            const payload = { action: delta.action, objectType: delta.objectType };
+            if (delta.action === 'delete') {
+                payload.id = delta.id;
+            } else {
+                payload.row = delta.row;
+            }
+            await fetch(GOOGLE_APPS_SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(payload)
+            });
+        }
+        // Clear the queue after successful processing
+        pendingDeltas = [];
+        try {
+            localStorage.setItem('kasir_pending_deltas', JSON.stringify([]));
+        } catch (err) {
+            // ignore
+        }
+    } catch (err) {
+        console.error('Failed to process pending deltas:', err);
+        // Leave deltas in queue for next time
+    } finally {
+        if (!silent) {
+            hideLoading();
+        }
+    }
+}
+
 // Listen for the browser coming online.  When connectivity is restored,
 // attempt to synchronise any pending changes.  The sync call is silent so
 // that the user is not interrupted.
 window.addEventListener('online', () => {
-    syncPendingData();
+    // First process queued delta operations and then attempt to synchronise
+    // any other pending changes.  Both calls are silent to avoid interfering
+    // with the user experience.
+    processPendingDeltas(true).then(() => {
+        syncPendingData();
+    });
 });
 
 /**
@@ -954,7 +1054,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Load any held transactions saved in localStorage and update the hold count.  This ensures previously saved holds persist across sessions.
     loadHoldData();
     updateHoldCount();
-    generateSampleTransactions();
+    // generateSampleTransactions();
     updateTime();
     setInterval(updateTime, 1000);
     displaySavedProducts();
@@ -5354,28 +5454,55 @@ async function sendDeltaToGoogleSheets(action, objectType, rowOrId) {
         console.warn('URL Google Apps Script belum diatur. Perubahan tidak akan tersinkron.');
         return;
     }
-    const payload = { action: action, objectType: objectType };
+    // Construct a delta record to send or queue
+    const delta = { action: action, objectType: objectType };
     if (action === 'delete') {
-        payload.id = rowOrId;
+        delta.id = rowOrId;
     } else {
-        payload.row = rowOrId;
+        delta.row = rowOrId;
+    }
+    // If offline, queue the delta and mark pending for later synchronisation
+    if (!navigator.onLine) {
+        pendingDeltas.push(delta);
+        try {
+            localStorage.setItem('kasir_pending_deltas', JSON.stringify(pendingDeltas));
+        } catch (err) {
+            // Ignore localStorage errors
+        }
+        syncPending = true;
+        try {
+            localStorage.setItem('kasir_sync_pending', 'true');
+        } catch (err) {
+            // ignore
+        }
+        return;
+    }
+    // Attempt to send the delta immediately when online
+    const payload = { action: delta.action, objectType: delta.objectType };
+    if (delta.action === 'delete') {
+        payload.id = delta.id;
+    } else {
+        payload.row = delta.row;
     }
     try {
-        /**
-         * Use text/plain instead of application/json to avoid a CORS preflight
-         * request.  Google Apps Script accepts plain text payloads and
-         * JSON.parse() will still parse the body correctly.  A preflight
-         * triggered by application/json would require explicit
-         * Access-Control-Allow-Origin headers from the Apps Script, which are
-         * not added by default and would cause a 405 error in the browser.
-         */
         await fetch(GOOGLE_APPS_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify(payload)
         });
     } catch (err) {
-        console.error('Failed to sync change to Google Sheets:', err);
+        console.error('Failed to sync change, queued for later:', err);
+        // On failure, queue the delta for retry
+        pendingDeltas.push(delta);
+        try {
+            localStorage.setItem('kasir_pending_deltas', JSON.stringify(pendingDeltas));
+        } catch (e) {
+            // ignore
+        }
+        syncPending = true;
+        try {
+            localStorage.setItem('kasir_sync_pending', 'true');
+        } catch (e) {}
     }
 }
 
@@ -5470,10 +5597,15 @@ async function importDataFromGoogleSheets() {
                 isImporting = true;
                 saveData();
                 isImporting = false;
-                // Synchronise any pending changes (if logged in and online).  This
-                // will not re-export the imported data because syncPending is false
-                // unless there were prior unsynchronised edits.
-                syncPendingData();
+                // Synchronise any pending changes (if logged in and online).  If
+                // there were prior unsynchronised edits, syncPending would be true.
+                // However, because imports do not mark data as dirty, this will
+                // typically do nothing.  We intentionally omit automatic
+                // synchronisation here to avoid unnecessarily writing back to
+                // Google Sheets when there are no user edits.
+                if (syncPending) {
+                    syncPendingData();
+                }
                 // refresh UI
                 displaySavedProducts();
                 displayScannerProductTable();
