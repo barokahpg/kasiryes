@@ -280,6 +280,10 @@
                     <button onclick="toggleThemeMenu()" class="bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press">
                         🎨 <span class="hidden sm:inline">Tema</span>
                     </button>
+                    <!-- Logout button: hidden by default and shown when the user is logged in.  The logout function is defined in script.js -->
+                    <button id="logoutButton" onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press hidden">
+                        🚪 <span class="hidden sm:inline">Logout</span>
+                    </button>
                     <!-- Export and Import buttons removed: data is now imported automatically on page load and updated silently after changes -->
                 </div>
             </div>
@@ -330,8 +334,7 @@
                         <!-- Kolom input untuk ketik atau scan barcode. 
                              Hanya menampilkan kolom input tanpa kotak kamera atau area bergaris yang mengganggu. -->
                         <input type="text" id="barcodeInput" placeholder="Ketik atau scan barcode..." 
-                               class="w-full mt-3 sm:mt-4 px-3 sm:px-4 py-2 sm:py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-base sm:text-lg"
-                               onkeypress="handleBarcodeInput(event)" oninput="showProductSuggestions(this.value)">
+                               class="w-full mt-3 sm:mt-4 px-3 sm:px-4 py-2 sm:py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-base sm:text-lg">
 
                         <!-- Product Suggestions -->
                         <div id="productSuggestions" class="hidden mt-2 bg-white border-2 border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
@@ -490,7 +493,15 @@
                     </h2>
                     
                     <!-- Summary Cards -->
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                    <!--
+                        Update the summary card grid to accommodate an additional card for
+                        "Jumlah Sedekah Hari Ini".  On medium screens and above the grid
+                        now uses five columns instead of four.  Each card displays a
+                        high‑level metric for the current analysis period.  The new
+                        sedekah card sits alongside the existing revenue, modal, profit
+                        and ROI cards.
+                    -->
+                    <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
                         <div class="bg-green-50 p-4 rounded-lg">
                             <h4 class="font-bold text-green-800 mb-2">💰 Total Penjualan</h4>
                             <div class="text-xl font-bold text-green-600" id="totalRevenue">Rp 0</div>
@@ -511,6 +522,12 @@
                             <div class="text-xl font-bold text-purple-600" id="roi">0%</div>
                             <div class="text-sm text-gray-600">return on investment</div>
                         </div>
+                        <!-- Sedekah card: displays 2,5% dari laba kotor for the current period -->
+                        <div class="bg-yellow-50 p-4 rounded-lg">
+                            <h4 class="font-bold text-yellow-800 mb-2">🤲 Jumlah Sedekah Hari Ini</h4>
+                            <div class="text-xl font-bold text-yellow-600" id="sedekahAmount">Rp 0</div>
+                            <div class="text-sm text-gray-600">2,5% dari laba kotor</div>
+                        </div>
                     </div>
 
                     <!-- Filter Periode -->
@@ -528,6 +545,16 @@
                             </button>
                             <button onclick="filterAnalysis('all')" id="filterAll" class="bg-gray-300 text-gray-700 py-2 px-4 rounded-lg font-semibold">
                                 Semua
+                            </button>
+                        </div>
+                        <!-- Additional controls: previous/next day navigation for the Analysis tab -->
+                        <div id="analysisDateNavigation" class="hidden flex items-center justify-center space-x-2 mt-3">
+                            <button id="prevDayAnalysis" onclick="moveAnalysisDate(-1)" class="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded-lg font-semibold">
+                                ←
+                            </button>
+                            <span id="analysisDateLabel" class="font-semibold text-gray-700"></span>
+                            <button id="nextDayAnalysis" onclick="moveAnalysisDate(1)" class="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded-lg font-semibold">
+                                →
                             </button>
                         </div>
                     </div>
@@ -706,10 +733,17 @@
                     </div>
                     
                     <div class="mt-4">
-                        <button onclick="showUnifiedPaymentModal()" 
-                                class="w-full bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-lg font-bold text-sm transition-colors">
-                            💳 BAYAR
-                        </button>
+                        <!-- When there are items in the cart the operator can either hold the transaction or proceed to payment.  Holding a transaction saves the current cart and discount settings to a list that can be resumed later. -->
+                        <div class="flex space-x-2">
+                            <button onclick="showHoldNameModal()" 
+                                    class="w-1/2 bg-yellow-500 hover:bg-yellow-600 text-white py-3 px-4 rounded-lg font-bold text-sm transition-colors">
+                                ⏸️ HOLD
+                            </button>
+                            <button onclick="showUnifiedPaymentModal()" 
+                                    class="w-1/2 bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-lg font-bold text-sm transition-colors">
+                                💳 BAYAR
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -721,6 +755,23 @@
         <div class="flex items-center space-x-2">
             <span class="text-lg">🛒</span>
             <span id="cartItemCount" class="bg-red-500 text-white text-xs rounded-full px-2 py-1 font-bold">0</span>
+        </div>
+    </div>
+
+    <!-- Hold Toggle -->
+    <!-- This floating button shows the number of held transactions. Clicking it opens a modal listing all held carts that can be resumed or deleted. -->
+    <!--
+        Hold Toggle
+
+        This floating button shows the number of held transactions and opens the hold list modal.
+        It is positioned to the left of the cart button in the lower-right corner so that it appears
+        adjacent to the cart toggle. The button remains hidden whenever the floating cart is open
+        or when there are no held transactions (handled in script.js).
+    -->
+    <div id="holdToggle" class="fixed bottom-4 right-16 bg-yellow-500 hover:bg-yellow-600 text-white p-3 rounded-full shadow-lg cursor-pointer z-40 transition-all duration-300 hidden" onclick="toggleHoldModal()">
+        <div class="flex items-center space-x-2">
+            <span class="text-lg">⏸️</span>
+            <span id="holdCount" class="bg-red-500 text-white text-xs rounded-full px-2 py-1 font-bold">0</span>
         </div>
     </div>
 
@@ -749,6 +800,47 @@
                 </button>
                 <button onclick="closeReceiptPreview()" class="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-3 px-4 rounded-lg font-semibold">
                     Keluar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Held Transactions Modal -->
+    <!-- Modal showing a list of transactions that have been held.  Each entry displays basic info and buttons to resume or delete the held transaction. -->
+    <div id="holdModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <h3 class="text-xl font-bold mb-4 flex items-center">
+                <span class="bg-yellow-100 text-yellow-600 p-2 rounded-lg mr-3">⏸️</span>
+                Transaksi Tertahan
+            </h3>
+            <div id="holdList" class="space-y-3">
+                <p class="text-sm text-gray-500 text-center">Belum ada transaksi tertahan</p>
+            </div>
+            <div class="flex justify-end pt-4">
+                <button onclick="closeHoldModal()" class="bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded-lg font-semibold">
+                    Tutup
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transaction Name Prompt Modal -->
+    <!-- This modal appears when the cashier wants to hold a transaction.  The user can enter a custom name for the held transaction. -->
+    <div id="holdNameModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-[60] p-4">
+        <div class="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 class="text-lg font-bold mb-4 flex items-center">
+                <span class="bg-yellow-100 text-yellow-600 p-2 rounded-lg mr-3">📝</span>
+                Nama Transaksi
+            </h3>
+            <div class="mb-4">
+                <input type="text" id="holdNameInput" class="w-full px-4 py-2 border rounded-lg focus:border-yellow-500 focus:outline-none" placeholder="Masukkan nama transaksi...">
+            </div>
+            <div class="flex justify-end space-x-3">
+                <button onclick="saveHoldName()" class="bg-yellow-500 hover:bg-yellow-600 text-white py-2 px-4 rounded-lg font-semibold">
+                    Simpan
+                </button>
+                <button onclick="closeHoldNameModal()" class="bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded-lg font-semibold">
+                    Batal
                 </button>
             </div>
         </div>
@@ -1145,6 +1237,28 @@
             <div class="flex justify-center">
                 <button id="alertOkButton" class="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg font-semibold">OK</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Login Overlay -->
+    <!-- The login overlay is displayed on top of the application before a user has authenticated.  It uses a
+         fixed position to cover the entire viewport and includes a simple form to capture a username and
+         password.  Successful authentication will hide this overlay and allow access to the rest of the app.
+         Styling uses Tailwind CSS classes to ensure consistency with the rest of the design and supports
+         dark mode using the existing classes. -->
+    <div id="loginOverlay" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70 z-50 hidden">
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg w-80">
+            <h2 class="text-xl font-bold mb-4 text-center text-gray-800 dark:text-gray-100">Masuk</h2>
+            <div class="mb-3">
+                <label for="loginUsername" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nama Pengguna</label>
+                <input type="text" id="loginUsername" class="w-full p-2 border rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Masukkan nama pengguna" />
+            </div>
+            <div class="mb-4">
+                <label for="loginPassword" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kata Sandi</label>
+                <input type="password" id="loginPassword" class="w-full p-2 border rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Masukkan kata sandi" />
+            </div>
+            <div id="loginError" class="mb-3 text-sm text-red-600 dark:text-red-400 hidden">Nama pengguna atau kata sandi salah.</div>
+            <button id="loginButton" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg font-semibold transition-colors active:bg-blue-700">Login</button>
         </div>
     </div>
 

@@ -10,6 +10,149 @@ let cart = [];
         let debtData = [];
         let thermalPrinter = null;
         let printerConnected = false;
+// Array of held transactions. Each entry contains the saved cart items, discount settings and timestamp.
+let holdData = [];
+// Current day offset for analysis view (0 = today, negative = past, positive = future).
+// When using the "Hari Sebelumnya" / "Hari Berikutnya" buttons in the Analysis tab,
+// this value will change to shift the analysis date. Selecting another period or
+// resetting to "Hari Ini" will reset this offset back to 0.
+let analysisDateOffset = 0;
+
+/**
+ * Format a Date object into a human‑readable string for display in the analysis
+ * date navigation.  Uses the local Indonesian locale and a short month name.
+ * For example, 21 Oct 2025.
+ * @param {Date} date
+ * @returns {string}
+ */
+function formatDateForLabel(date) {
+    if (!(date instanceof Date)) return '';
+    // Use Indonesian locale with weekday, day numeric, month long, and year numeric.
+    // This ensures the label includes the day of the week (e.g., "Selasa, 21 Oktober 2025").
+    return date.toLocaleDateString('id-ID', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+    });
+}
+
+/**
+ * Show or hide the analysis date navigation controls (previous/next day).
+ * When showing the controls, ensure they are displayed flex to align items.
+ * @param {boolean} show Whether to display the controls
+ */
+function toggleAnalysisNavigation(show) {
+    const nav = document.getElementById('analysisDateNavigation');
+    if (!nav) return;
+    nav.classList[show ? 'remove' : 'add']('hidden');
+}
+
+/**
+ * Shift the analysis date by the given number of days and update the analysis view.
+ * A negative value moves to previous days, positive to future days.  The analysis
+ * date offset is updated accordingly and persisted until the user resets to "Hari Ini"
+ * via the standard filter buttons.
+ * @param {number} direction Number of days to shift (e.g., -1 for previous day, 1 for next day)
+ */
+function moveAnalysisDate(direction) {
+    if (typeof direction !== 'number' || direction === 0) return;
+    analysisDateOffset += direction;
+    // Calculate the new selected date based off the current real date plus offset
+    const now = new Date();
+    // Create a date at midnight to compare by date only
+    const selectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + analysisDateOffset);
+    // Update the analysis view for this date
+    updateAnalysisForDate(selectedDate);
+}
+// Expose moveAnalysisDate so that inline HTML can invoke it
+window.moveAnalysisDate = moveAnalysisDate;
+
+/**
+ * Update the analysis metrics and product table for a specific date.
+ * This bypasses the built‑in period filters and always treats the analysis as if
+ * "Hari Ini" were selected, but for the chosen date.  It also updates the
+ * navigation label and highlights the "Hari Ini" button accordingly.
+ * @param {Date} date The date to analyse
+ */
+function updateAnalysisForDate(date) {
+    if (!(date instanceof Date)) return;
+    // Compute transactions for the given date
+    const filteredTransactions = salesData.filter(t => {
+        if (!t.timestamp) return false;
+        const transactionDate = new Date(t.timestamp);
+        return transactionDate.toDateString() === date.toDateString();
+    });
+    // Calculate totals similar to filterAnalysis()
+    let totalRevenue = 0;
+    let totalModal = 0;
+    const transactionCount = filteredTransactions.length;
+    filteredTransactions.forEach(transaction => {
+        if (transaction.total && !isNaN(transaction.total)) {
+            totalRevenue += transaction.total;
+        }
+        if (transaction.items && Array.isArray(transaction.items)) {
+            transaction.items.forEach(item => {
+                // Determine modal/cost price: prefer per‑item modalPrice (for services), else fall back to product modalPrice
+                let costPrice = 0;
+                if (item.modalPrice && !isNaN(item.modalPrice)) {
+                    costPrice = item.modalPrice;
+                } else {
+                    const product = products.find(p => p.id === item.id);
+                    if (product && product.modalPrice && !isNaN(product.modalPrice)) {
+                        costPrice = product.modalPrice;
+                    }
+                }
+                if (!isNaN(costPrice) && costPrice >= 0 && item.quantity && !isNaN(item.quantity)) {
+                    totalModal += costPrice * item.quantity;
+                }
+            });
+        }
+    });
+    const grossProfit = totalRevenue - totalModal;
+    const profitMargin = totalRevenue > 0 ? (grossProfit / totalRevenue * 100) : 0;
+    const roi = totalModal > 0 ? (grossProfit / totalModal * 100) : 0;
+    // Update DOM elements
+    document.getElementById('totalRevenue').textContent = formatCurrency(totalRevenue);
+    document.getElementById('revenueCount').textContent = `${transactionCount} transaksi`;
+    document.getElementById('totalModal').textContent = formatCurrency(totalModal);
+    document.getElementById('grossProfit').textContent = formatCurrency(grossProfit);
+    document.getElementById('profitMargin').textContent = `${profitMargin.toFixed(1)}% margin`;
+    document.getElementById('roi').textContent = `${roi.toFixed(1)}%`;
+    // Update sedekah amount for the selected date.  Use the same formula
+    // (2.5% of gross profit) as the daily analysis.  Clamp to zero to avoid
+    // negative donation values when gross profit is negative.
+    {
+        const sedekah = Math.max(grossProfit * 0.025, 0);
+        const sedekahEl = document.getElementById('sedekahAmount');
+        if (sedekahEl) {
+            sedekahEl.textContent = formatCurrency(sedekah);
+        }
+    }
+    updateProductAnalysisTable(filteredTransactions);
+    // Update the date label
+    const labelEl = document.getElementById('analysisDateLabel');
+    if (labelEl) {
+        labelEl.textContent = formatDateForLabel(date);
+    }
+    // Highlight the "Hari Ini" filter button and de‑highlight others
+    ['filterToday', 'filterWeek', 'filterMonth', 'filterAll'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.classList.remove('bg-green-500', 'text-white');
+            btn.classList.add('bg-gray-300', 'text-gray-700');
+        }
+    });
+    const todayBtn = document.getElementById('filterToday');
+    if (todayBtn) {
+        todayBtn.classList.remove('bg-gray-300', 'text-gray-700');
+        todayBtn.classList.add('bg-green-500', 'text-white');
+    }
+    // Ensure navigation controls are visible
+    toggleAnalysisNavigation(true);
+}
+// Expose updateAnalysisForDate if needed externally
+window.updateAnalysisForDate = updateAnalysisForDate;
 
 // ---------------------------------------------------------------------------
 // Receipt preview state
@@ -36,6 +179,8 @@ function showReceiptPreview(transaction) {
     }
     if (previewModal) {
         previewModal.classList.remove('hidden');
+        // Attach keyboard shortcuts: Enter to print, Escape to close
+        attachModalKeyHandlers(previewModal, printReceiptFromPreview, closeReceiptPreview);
     }
 }
 // Expose globally for inline button handlers if needed
@@ -49,6 +194,8 @@ function closeReceiptPreview() {
     const previewModal = document.getElementById('receiptPreviewModal');
     if (previewModal) {
         previewModal.classList.add('hidden');
+        // Remove keyboard handlers when modal is closed
+        detachModalKeyHandlers(previewModal);
     }
     // Run finalize callback if defined
     if (typeof pendingFinalizeCallback === 'function') {
@@ -73,6 +220,8 @@ function printReceiptFromPreview() {
     }
     if (previewModal) {
         previewModal.classList.add('hidden');
+        // Detach keyboard handlers when modal is closed after printing
+        detachModalKeyHandlers(previewModal);
     }
     // Run finalize callback if defined
     if (typeof pendingFinalizeCallback === 'function') {
@@ -136,6 +285,65 @@ function playBeep() {
 // Expose beep so it can be used from other functions or inline handlers if needed
 window.playBeep = playBeep;
 
+/**
+ * Attach keyboard handlers to a modal to trigger confirm or cancel callbacks.
+ * When the modal is visible, pressing Enter will invoke the confirm callback
+ * and pressing Escape will invoke the cancel callback.  You can optionally
+ * provide a list of input element IDs to ignore; key events originating from
+ * those inputs will not trigger confirm/cancel so that users can type freely.
+ *
+ * @param {string|HTMLElement} modalId The ID or element of the modal to watch.
+ * @param {Function} confirmCallback The function to call on Enter key.
+ * @param {Function} cancelCallback The function to call on Escape key.
+ * @param {string[]} [ignoreInputIds] IDs of input/textarea elements to ignore.
+ */
+function attachModalKeyHandlers(modalId, confirmCallback, cancelCallback, ignoreInputIds = []) {
+    const modal = typeof modalId === 'string' ? document.getElementById(modalId) : modalId;
+    if (!modal) return;
+    // Avoid attaching multiple handlers to the same modal
+    if (modal._keyHandler) return;
+    modal._keyHandler = function(event) {
+        // Only react when modal is visible
+        if (modal.classList.contains('hidden')) return;
+        const target = event.target;
+        // If the event originates from an input/textarea with an ignored ID, do nothing
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+            if (ignoreInputIds && ignoreInputIds.includes(target.id)) {
+                return;
+            }
+        }
+        if (event.key === 'Enter') {
+            if (typeof confirmCallback === 'function') {
+                event.preventDefault();
+                confirmCallback();
+            }
+        } else if (event.key === 'Escape' || event.key === 'Esc') {
+            if (typeof cancelCallback === 'function') {
+                event.preventDefault();
+                cancelCallback();
+            }
+        }
+    };
+    document.addEventListener('keydown', modal._keyHandler);
+}
+
+/**
+ * Detach keyboard handlers from a modal previously attached with
+ * attachModalKeyHandlers().  This should be called when the modal is
+ * hidden or after the confirm/cancel action has completed to prevent
+ * handlers from lingering.
+ *
+ * @param {string|HTMLElement} modalId The ID or element of the modal.
+ */
+function detachModalKeyHandlers(modalId) {
+    const modal = typeof modalId === 'string' ? document.getElementById(modalId) : modalId;
+    if (!modal) return;
+    if (modal._keyHandler) {
+        document.removeEventListener('keydown', modal._keyHandler);
+        modal._keyHandler = null;
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Confirmation overlay helpers
 //
@@ -169,9 +377,15 @@ function showConfirmLayer(message, callback) {
     messageEl.textContent = message;
     overlay.classList.remove('hidden');
     // Define click handlers
+    // Handler to remove key listener
+    let keyHandler;
     function cleanup() {
         yesBtn.removeEventListener('click', onYes);
         noBtn.removeEventListener('click', onNo);
+        if (keyHandler) {
+            document.removeEventListener('keydown', keyHandler);
+            keyHandler = null;
+        }
     }
     function onYes() {
         cleanup();
@@ -183,7 +397,18 @@ function showConfirmLayer(message, callback) {
         overlay.classList.add('hidden');
         if (typeof callback === 'function') callback(false);
     }
-    // Attach listeners
+    // Attach key handler: Enter = yes, Esc = no
+    keyHandler = function(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            onYes();
+        } else if (event.key === 'Escape' || event.key === 'Esc') {
+            event.preventDefault();
+            onNo();
+        }
+    };
+    document.addEventListener('keydown', keyHandler);
+    // Attach click listeners
     yesBtn.addEventListener('click', onYes);
     noBtn.addEventListener('click', onNo);
 }
@@ -324,6 +549,12 @@ function processScannedCode(rawCode) {
 // the original version of the project to preserve the existing
 // synchronization functionality.  If you deploy a new Apps Script,
 // update this URL accordingly.
+// Updated Apps Script URL provided by the user. This URL is used for all
+// communication between the POS application and Google Sheets (importing
+// and exporting data, and handling login authentication). Make sure to
+// redeploy your Apps Script as a web app whenever this URL changes.
+// Updated Apps Script URL provided by the user (latest deployment). This URL is used for all
+// communication between the POS application and Google Sheets (importing/exporting data and login).
 const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby0sIYymZUVJsCDli6jpehKEImLN40hG8h4j6NDK3XrYLtJhqL1lNP6hQ6YHBXobJ8/exec';
 
 
@@ -599,6 +830,9 @@ function handleGlobalScannedBarcode(code) {
 document.addEventListener('DOMContentLoaded', async function() {
     await loadDatabase();
     loadData();
+    // Load any held transactions saved in localStorage and update the hold count.  This ensures previously saved holds persist across sessions.
+    loadHoldData();
+    updateHoldCount();
     generateSampleTransactions();
     updateTime();
     setInterval(updateTime, 1000);
@@ -765,6 +999,30 @@ function attachSearchListeners() {
                 activeTab.classList.remove('text-gray-600', 'hover:text-green-600', 'hover:bg-green-50');
             }
 
+            // If returning to the scanner tab and there is text in the barcode input,
+            // automatically re-display the product suggestions.  Without this logic,
+            // suggestions disappear when switching away and back, leaving just the
+            // search term in the input.  When no text is present, ensure any
+            // lingering suggestion list is hidden.
+            if (tabName === 'scanner') {
+                const barcodeInput = document.getElementById('barcodeInput');
+                if (barcodeInput && barcodeInput.value && barcodeInput.value.trim() !== '') {
+                    // Delay showing suggestions until after the current click event has
+                    // fully propagated.  When switching tabs, the global click
+                    // listener hides the suggestion list (to close any open
+                    // dropdown).  Without a delay, calling showProductSuggestions()
+                    // here would be immediately undone by that handler.  Using
+                    // setTimeout with a small delay ensures suggestions are
+                    // displayed after the click handler completes.
+                    setTimeout(() => {
+                        showProductSuggestions(barcodeInput.value.trim());
+                    }, 0);
+                } else {
+                    // No search term present; ensure any lingering suggestions are hidden
+                    hideProductSuggestions();
+                }
+            }
+
             // Perform tab-specific actions
             if (tabName === 'analysis') {
                 updateAnalysis();
@@ -813,6 +1071,284 @@ function attachSearchListeners() {
             localStorage.setItem('kasir_sales', JSON.stringify(salesData));
             localStorage.setItem('kasir_debt', JSON.stringify(debtData));
         }
+
+        /**
+         * Load held transactions from localStorage into the global holdData array.
+         * If none exist the array remains empty.
+         */
+        function loadHoldData() {
+            const savedHold = localStorage.getItem('kasir_hold');
+            if (savedHold) {
+                try {
+                    holdData = JSON.parse(savedHold);
+                } catch (err) {
+                    console.error('Failed to parse held data:', err);
+                    holdData = [];
+                }
+            }
+        }
+
+        /**
+         * Persist the current holdData array to localStorage.
+         */
+        function saveHoldData() {
+            localStorage.setItem('kasir_hold', JSON.stringify(holdData));
+        }
+
+        /**
+         * Update the number displayed on the hold toggle button.
+         * This should be called whenever holdData changes.
+         */
+        function updateHoldCount() {
+            const holdCountEl = document.getElementById('holdCount');
+            const holdToggleEl = document.getElementById('holdToggle');
+            if (holdCountEl) {
+                holdCountEl.textContent = holdData.length;
+            }
+            // Show or hide the hold toggle depending on whether any holds exist. If no holds exist, hide the button entirely.
+            if (holdToggleEl) {
+                if (holdData.length === 0) {
+                    holdToggleEl.classList.add('hidden');
+                } else {
+                    // Only show the hold toggle if the floating cart is not open
+                    const floatingCart = document.getElementById('floatingCart');
+                    if (floatingCart && !floatingCart.classList.contains('hidden')) {
+                        // If cart is open, keep hold toggle hidden
+                        holdToggleEl.classList.add('hidden');
+                    } else {
+                        holdToggleEl.classList.remove('hidden');
+                    }
+                }
+            }
+        }
+
+        /**
+         * Save the current cart and discount settings as a held transaction.
+         * Empties the cart afterwards so the cashier can serve the next customer quickly.
+         */
+        function holdTransaction(name) {
+            if (!cart || cart.length === 0) {
+                alert('Tidak ada item di keranjang untuk ditahan!');
+                return;
+            }
+            // Capture discount settings
+            const discountInputEl = document.getElementById('discountInput');
+            const discountTypeEl = document.getElementById('discountType');
+            const holdEntry = {
+                id: Date.now(),
+                name: name || '',
+                items: cart.map(item => Object.assign({}, item)),
+                discountInput: discountInputEl ? parseInt(discountInputEl.value) || 0 : 0,
+                discountType: discountTypeEl ? discountTypeEl.value : 'percent',
+                timestamp: new Date().toISOString()
+            };
+            holdData.push(holdEntry);
+            saveHoldData();
+            updateHoldCount();
+            // Clear cart and reset discount
+            cart = [];
+            if (discountInputEl) discountInputEl.value = 0;
+            if (discountTypeEl) discountTypeEl.value = 'percent';
+            updateCartDisplay();
+            updateTotal();
+            // Close the cart if open
+            const floatingCart = document.getElementById('floatingCart');
+            const cartToggle = document.getElementById('cartToggle');
+            if (floatingCart && cartToggle) {
+                floatingCart.classList.add('hidden');
+                cartToggle.classList.remove('hidden');
+            }
+            // After closing the cart, recompute the hold toggle visibility.  updateHoldCount()
+            // will show or hide the hold toggle based on the number of held transactions and
+            // the current cart state (closed).  Without this call, the hold toggle remains
+            // hidden because updateHoldCount() was previously invoked while the cart was still
+            // open.
+            updateHoldCount();
+            // Provide subtle feedback without requiring user confirmation
+            // Optionally this can be replaced with a toast/notification
+        }
+
+        /**
+         * Open or close the hold modal. When opening the modal the list is rendered.
+         */
+        function toggleHoldModal() {
+            const modal = document.getElementById('holdModal');
+            if (!modal) return;
+            if (modal.classList.contains('hidden')) {
+                renderHoldList();
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                // Attach keyboard shortcuts: Enter/Esc closes hold list
+                attachModalKeyHandlers(modal, () => { toggleHoldModal(); }, () => { toggleHoldModal(); });
+            } else {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                // Detach keyboard shortcuts when closing
+                detachModalKeyHandlers(modal);
+            }
+        }
+
+        /**
+         * Close the hold modal explicitly.
+         */
+        function closeHoldModal() {
+            const modal = document.getElementById('holdModal');
+            if (!modal) return;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            // Detach keyboard shortcuts when closing hold modal
+            detachModalKeyHandlers(modal);
+        }
+
+        /**
+         * Render the list of held transactions inside the hold modal.
+         */
+        function renderHoldList() {
+            const listEl = document.getElementById('holdList');
+            if (!listEl) return;
+            if (!holdData || holdData.length === 0) {
+                listEl.innerHTML = '<p class="text-sm text-gray-500 text-center">Belum ada transaksi tertahan</p>';
+                return;
+            }
+            // Build entries
+            const html = holdData.map((entry, idx) => {
+                const date = new Date(entry.timestamp);
+                const formatted = date.toLocaleString('id-ID');
+                const itemsCount = entry.items.reduce((sum, it) => sum + (it.quantity || 0), 0);
+                const label = entry.name && entry.name.trim() !== '' ? entry.name : `Hold #${idx + 1}`;
+                return `
+                    <div class="bg-gray-50 p-3 rounded-lg flex justify-between items-center">
+                        <div class="flex-1">
+                            <div class="font-semibold text-sm text-gray-800">${label}</div>
+                            <div class="text-xs text-gray-600">${formatted} • ${itemsCount} item</div>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="resumeHold(${idx})" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-xs font-semibold">Lanjut</button>
+                            <button onclick="deleteHold(${idx})" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs font-semibold">Hapus</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            listEl.innerHTML = html;
+        }
+
+        /**
+         * Restore a held transaction back into the cart.
+         * Removes the entry from the hold list and updates the UI accordingly.
+         * @param {number} index Index of the held entry to resume.
+         */
+        function resumeHold(index) {
+            if (index < 0 || index >= holdData.length) return;
+            const entry = holdData.splice(index, 1)[0];
+            saveHoldData();
+            updateHoldCount();
+            // Restore cart
+            cart = entry.items.map(it => Object.assign({}, it));
+            // Restore discount values
+            const discountInputEl = document.getElementById('discountInput');
+            const discountTypeEl = document.getElementById('discountType');
+            if (discountInputEl) discountInputEl.value = entry.discountInput || 0;
+            if (discountTypeEl) discountTypeEl.value = entry.discountType || 'percent';
+            updateCartDisplay();
+            updateTotal();
+            renderHoldList();
+            // Show cart: open the floating cart and hide the cart toggle.  Also hide the hold toggle since
+            // the cart is now open.  updateHoldCount() will take care of showing the hold toggle again
+            // only when there are held transactions and the cart is closed.
+            const floatingCart = document.getElementById('floatingCart');
+            const cartToggle = document.getElementById('cartToggle');
+            const holdToggle = document.getElementById('holdToggle');
+            if (floatingCart && cartToggle) {
+                floatingCart.classList.remove('hidden');
+                cartToggle.classList.add('hidden');
+                if (holdToggle) holdToggle.classList.add('hidden');
+            }
+            // Automatically close hold modal
+            closeHoldModal();
+            // After opening the cart, update the hold toggle visibility based on current holds and cart state
+            updateHoldCount();
+        }
+
+        /**
+         * Remove a held transaction from the list after confirming with the user.
+         * @param {number} index Index of the held entry to delete.
+         */
+        function deleteHold(index) {
+            if (index < 0 || index >= holdData.length) return;
+            const confirmMessage = 'Yakin ingin menghapus transaksi tertahan ini?';
+            // Use the custom confirmation layer if available, otherwise fall back to default confirm()
+            if (typeof showConfirmLayer === 'function') {
+                showConfirmLayer(confirmMessage, function(confirmed) {
+                    if (!confirmed) return;
+                    holdData.splice(index, 1);
+                    saveHoldData();
+                    updateHoldCount();
+                    renderHoldList();
+                });
+            } else if (confirm(confirmMessage)) {
+                holdData.splice(index, 1);
+                saveHoldData();
+                updateHoldCount();
+                renderHoldList();
+            }
+        }
+
+        /**
+         * Show the modal to input a name for the held transaction.
+         */
+        function showHoldNameModal() {
+            const input = document.getElementById('holdNameInput');
+            if (input) {
+                input.value = '';
+            }
+            const modal = document.getElementById('holdNameModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                // Attach keyboard shortcuts: Enter to save, Escape to cancel
+                attachModalKeyHandlers(modal, saveHoldName, closeHoldNameModal);
+                // Focus the input after the modal is displayed
+                setTimeout(() => {
+                    if (input) input.focus();
+                }, 100);
+            }
+        }
+
+        /**
+         * Close the hold name modal without holding.
+         */
+        function closeHoldNameModal() {
+            const modal = document.getElementById('holdNameModal');
+            if (!modal) return;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            // Detach keyboard handlers when modal is closed
+            detachModalKeyHandlers(modal);
+        }
+
+        /**
+         * Save the transaction with the provided name and hold it.
+         */
+        function saveHoldName() {
+            const input = document.getElementById('holdNameInput');
+            const name = input ? input.value.trim() : '';
+            holdTransaction(name);
+            // Detach handlers before closing to avoid lingering key events
+            const modal = document.getElementById('holdNameModal');
+            detachModalKeyHandlers(modal);
+            closeHoldNameModal();
+        }
+
+        // Expose hold-related functions globally for use in HTML onclick attributes
+        window.holdTransaction = holdTransaction;
+        window.toggleHoldModal = toggleHoldModal;
+        window.closeHoldModal = closeHoldModal;
+        window.resumeHold = resumeHold;
+        window.deleteHold = deleteHold;
+        // Expose hold name modal functions globally
+        window.showHoldNameModal = showHoldNameModal;
+        window.closeHoldNameModal = closeHoldNameModal;
+        window.saveHoldName = saveHoldName;
 
 /**
  * Remove duplicate products from the global `products` array.  Two products are
@@ -984,25 +1520,39 @@ function removeDuplicateProducts() {
             const suggestionsContainer = document.getElementById('productSuggestions');
             const suggestions = suggestionsContainer ? suggestionsContainer.children : [];
             if (event.key === 'ArrowDown' && suggestions.length > 0) {
-                // Move selection down; wrap to top when reaching the end
+                // Move selection down.  When the last suggestion is reached, stay
+                // there instead of wrapping back to the top.  This behaviour
+                // prevents confusion when users attempt to navigate beyond the last
+                // visible item: they can still use the mouse or scroll wheel to
+                // reveal additional suggestions instead of unexpectedly jumping to
+                // the first item.
                 event.preventDefault();
+                if (event.stopPropagation) event.stopPropagation();
                 if (currentSuggestionIndex < suggestions.length - 1) {
                     currentSuggestionIndex++;
                 } else {
-                    currentSuggestionIndex = 0;
+                    // Stay on the last item; do not wrap
+                    currentSuggestionIndex = suggestions.length - 1;
                 }
-                highlightSuggestionAtIndex(currentSuggestionIndex);
+                setTimeout(() => {
+                    highlightSuggestionAtIndex(currentSuggestionIndex);
+                }, 0);
                 return;
             }
             if (event.key === 'ArrowUp' && suggestions.length > 0) {
-                // Move selection up; wrap to bottom when reaching the start
+                // Move selection up.  When the first suggestion is reached, stay
+                // there instead of wrapping to the bottom.
                 event.preventDefault();
+                if (event.stopPropagation) event.stopPropagation();
                 if (currentSuggestionIndex > 0) {
                     currentSuggestionIndex--;
                 } else {
-                    currentSuggestionIndex = suggestions.length - 1;
+                    // Stay at the first item; do not wrap
+                    currentSuggestionIndex = 0;
                 }
-                highlightSuggestionAtIndex(currentSuggestionIndex);
+                setTimeout(() => {
+                    highlightSuggestionAtIndex(currentSuggestionIndex);
+                }, 0);
                 return;
             }
             // If Enter is pressed and a suggestion is highlighted, select it
@@ -1104,14 +1654,28 @@ function removeDuplicateProducts() {
                 return;
             }
 
-            suggestionsContainer.innerHTML = filteredProducts.slice(0, 5).map(product => {
+            // Render all matching products instead of limiting to a fixed subset.
+            // Previously we sliced to the first 5 items, which prevented keyboard
+            // navigation from moving past the last visible row and forced a
+            // wrap‑around to the top.  Removing the slice allows the user to
+            // continue scrolling through the entire filtered list using the
+            // arrow keys or mouse wheel.
+            suggestionsContainer.innerHTML = filteredProducts.map(product => {
                 const stockBadge = product.stock === 0 ? 
                     '<span class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-2">HABIS</span>' :
                     product.stock <= product.minStock ?
                     '<span class="text-xs bg-yellow-500 text-white px-2 py-1 rounded ml-2">MENIPIS</span>' : '';
-                
+
                 return `
-                    <div class="p-3 hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-b-0 ${product.stock === 0 ? 'opacity-50' : ''}"
+                    <!--
+                      Each suggestion row uses a light blue hover state.  Compared to
+                      the previous yellow highlight, the blue provides stronger
+                      contrast against both the dark and light UI themes while
+                      keeping the text easy to read.  When highlighted via
+                      keyboard navigation the row will receive a darker blue
+                      background (bg-blue-200) applied in highlightSuggestionAtIndex().
+                    -->
+                    <div class="p-3 hover:bg-blue-100 cursor-pointer border-b border-gray-100 last:border-b-0 ${product.stock === 0 ? 'opacity-50' : ''}"
                          data-product-id="${product.id}"
                          onclick="selectProductFromSuggestion(${product.id})">
                         <div class="flex justify-between items-center">
@@ -1132,7 +1696,10 @@ function removeDuplicateProducts() {
                 `;
             }).join('');
 
-            // Reset highlighted suggestion index and clear previous highlights
+            // Reset highlighted suggestion index and clear previous highlights.
+            // By not limiting the suggestions list, we need to ensure
+            // currentSuggestionIndex is reset so that navigation starts at
+            // the beginning of the new list.
             currentSuggestionIndex = -1;
             clearSuggestionHighlights();
             suggestionsContainer.classList.remove('hidden');
@@ -1142,20 +1709,28 @@ function removeDuplicateProducts() {
      * Remove highlight from all suggestion items.  When the suggestion index changes
      * (via arrow keys) or when suggestions are refreshed, this function clears
      * any previously applied highlight class.  The highlight class used here
-     * matches the hover colour (bg‑green‑100) defined in Tailwind CSS.
+     * matches the hover colour (bg‑yellow‑100) defined in Tailwind CSS.
      */
     function clearSuggestionHighlights() {
         const container = document.getElementById('productSuggestions');
         if (!container) return;
         const items = container.children;
         for (let i = 0; i < items.length; i++) {
+            // Remove any previous highlight classes.  In earlier versions the highlight
+            // used the bg-green-100 class; we remove all potential highlight classes
+            // (green, yellow or blue) to ensure only one background class is applied.
             items[i].classList.remove('bg-green-100');
+            items[i].classList.remove('bg-yellow-200');
+            items[i].classList.remove('bg-blue-200');
+            // Also remove the updated highlight colour class in case the
+            // configuration has changed.  See highlightSuggestionAtIndex().
+            items[i].classList.remove('bg-blue-300');
         }
     }
 
     /**
      * Highlight the suggestion item at the given index.  Adds the
-     * bg‑green‑100 class to the selected item and removes it from others.
+     * bg‑yellow‑200 class to the selected item and removes it from others.
      * If the index is out of range, no highlight is applied.  This helper
      * depends on clearSuggestionHighlights() being defined in the same scope.
      *
@@ -1167,7 +1742,28 @@ function removeDuplicateProducts() {
         const items = container.children;
         clearSuggestionHighlights();
         if (index >= 0 && index < items.length) {
-            items[index].classList.add('bg-green-100');
+            // Apply a more visible highlight colour.  Blue (200) contrasts well
+            // against both light and dark backgrounds, ensuring the suggestion
+            // remains legible when selected via keyboard navigation.
+            // Apply a more visible highlight colour.  A slightly darker blue
+            // (bg-blue-300) improves contrast against both light and dark
+            // backgrounds, ensuring that the suggestion text remains legible.
+            items[index].classList.add('bg-blue-300');
+            // Ensure the highlighted item is visible by scrolling it into view.
+            // Use the 'nearest' block option so that scrolling only occurs when
+            // the item is outside the visible portion of the suggestion list.
+            try {
+                items[index].scrollIntoView({ block: 'nearest' });
+            } catch (err) {
+                // Fallback: if scrollIntoView is not supported, adjust scrollTop manually
+                const containerRect = container.getBoundingClientRect();
+                const itemRect = items[index].getBoundingClientRect();
+                if (itemRect.top < containerRect.top) {
+                    container.scrollTop -= (containerRect.top - itemRect.top);
+                } else if (itemRect.bottom > containerRect.bottom) {
+                    container.scrollTop += (itemRect.bottom - containerRect.bottom);
+                }
+            }
         }
     }
 
@@ -1283,13 +1879,23 @@ function removeDuplicateProducts() {
         function toggleCart() {
             const floatingCart = document.getElementById('floatingCart');
             const cartToggle = document.getElementById('cartToggle');
-            
+            const holdToggle = document.getElementById('holdToggle');
+
+            // When opening the floating cart hide both the cart toggle and hold toggle to prevent
+            // them from obscuring any content (especially the total pay section).  When closing
+            // the floating cart, show the cart toggle again and let updateHoldCount() decide
+            // whether the hold toggle should be visible based on current data.
             if (floatingCart.classList.contains('hidden')) {
+                // Opening the floating cart
                 floatingCart.classList.remove('hidden');
-                cartToggle.classList.add('hidden');
+                if (cartToggle) cartToggle.classList.add('hidden');
+                if (holdToggle) holdToggle.classList.add('hidden');
             } else {
+                // Closing the floating cart
                 floatingCart.classList.add('hidden');
-                cartToggle.classList.remove('hidden');
+                if (cartToggle) cartToggle.classList.remove('hidden');
+                // Recompute hold toggle visibility based on current holds and cart state
+                updateHoldCount();
             }
         }
 
@@ -1308,15 +1914,21 @@ function removeDuplicateProducts() {
                 modalInput.value = '';
             }
             
-            document.getElementById('serviceProductModal').classList.remove('hidden');
-            document.getElementById('serviceProductModal').classList.add('flex');
+            const modalEl = document.getElementById('serviceProductModal');
+            modalEl.classList.remove('hidden');
+            modalEl.classList.add('flex');
+            // Attach keyboard shortcuts: Enter adds service to cart, Esc cancels
+            attachModalKeyHandlers(modalEl, addServiceToCart, closeServiceProductModal, ['serviceProductPrice','serviceProductModalPrice','serviceProductDescription','serviceProductQuantity']);
             
             setTimeout(() => document.getElementById('serviceProductPrice').focus(), 100);
         }
 
         function closeServiceProductModal() {
-            document.getElementById('serviceProductModal').classList.add('hidden');
-            document.getElementById('serviceProductModal').classList.remove('flex');
+            const modalEl = document.getElementById('serviceProductModal');
+            modalEl.classList.add('hidden');
+            modalEl.classList.remove('flex');
+            // Detach keyboard handlers when closing the service product modal
+            detachModalKeyHandlers(modalEl);
             currentServiceProduct = null;
         }
 
@@ -1519,8 +2131,15 @@ function removeDuplicateProducts() {
         function removeFromCart(id) {
             // Handle both numeric IDs and string IDs (for service items)
             cart = cart.filter(item => item.id != id);
-            updateCartDisplay();
-            updateTotal();
+    updateCartDisplay();
+    // If the cart is now empty, reset any global discount values so that
+    // subsequent transactions start with a clean slate.  This prevents
+    // previously entered discounts from carrying over when the user
+    // removes all items one by one.
+    if (cart.length === 0) {
+        resetGlobalDiscount();
+    }
+    updateTotal();
         }
 
         function clearCart() {
@@ -1530,10 +2149,31 @@ function removeDuplicateProducts() {
                 if (confirmed) {
                     cart = [];
                     updateCartDisplay();
-                    updateTotal();
+            // Reset global discount whenever the cart is completely emptied.
+            resetGlobalDiscount();
+            updateTotal();
                 }
             });
         }
+
+    /**
+     * Reset the global discount inputs back to their defaults (0 value and
+     * percentage type).  This function should be called whenever the cart is
+     * emptied, either via clearCart() or by removing items one by one until
+     * none remain.  Without this reset, any previously entered discount
+     * amount would erroneously apply to the next transaction.
+     */
+    function resetGlobalDiscount() {
+        const discountInputEl = document.getElementById('discountInput');
+        const discountTypeEl = document.getElementById('discountType');
+        if (discountInputEl) {
+            discountInputEl.value = 0;
+        }
+        if (discountTypeEl) {
+            // Default to percentage discount
+            discountTypeEl.value = 'percent';
+        }
+    }
 
         function updateTotal() {
             // First compute the intermediate total after per‑item discounts.  We also
@@ -2156,13 +2796,19 @@ function removeDuplicateProducts() {
         }
 
         function showAddProductModal() {
-            document.getElementById('addProductModal').classList.remove('hidden');
-            document.getElementById('addProductModal').classList.add('flex');
+            const modalEl = document.getElementById('addProductModal');
+            modalEl.classList.remove('hidden');
+            modalEl.classList.add('flex');
+            // Attach keyboard shortcuts: Enter saves new product, Escape cancels
+            attachModalKeyHandlers(modalEl, saveNewProduct, closeAddProductModal);
         }
 
         function closeAddProductModal() {
-            document.getElementById('addProductModal').classList.add('hidden');
-            document.getElementById('addProductModal').classList.remove('flex');
+            const modalEl = document.getElementById('addProductModal');
+            modalEl.classList.add('hidden');
+            modalEl.classList.remove('flex');
+            // Detach keyboard handlers when closing
+            detachModalKeyHandlers(modalEl);
             // Clear form
             document.getElementById('newProductName').value = '';
             document.getElementById('newProductPrice').value = '';
@@ -2356,13 +3002,19 @@ function removeDuplicateProducts() {
             document.getElementById('editProductWholesalePrice').value = product.wholesalePrice || '';
 
             // Show modal
-            document.getElementById('editProductModal').classList.remove('hidden');
-            document.getElementById('editProductModal').classList.add('flex');
+            const editModal = document.getElementById('editProductModal');
+            editModal.classList.remove('hidden');
+            editModal.classList.add('flex');
+            // Attach keyboard shortcuts: Enter saves edits, Escape cancels
+            attachModalKeyHandlers(editModal, saveEditedProduct, closeEditProductModal);
         }
 
         function closeEditProductModal() {
-            document.getElementById('editProductModal').classList.add('hidden');
-            document.getElementById('editProductModal').classList.remove('flex');
+            const editModal = document.getElementById('editProductModal');
+            editModal.classList.add('hidden');
+            editModal.classList.remove('flex');
+            // Detach keyboard handlers when closing the edit modal
+            detachModalKeyHandlers(editModal);
             editingProductId = null;
             
             // Clear form
@@ -2584,15 +3236,21 @@ function removeDuplicateProducts() {
             document.getElementById('paymentStatusAmount').className = 'text-xl font-bold text-gray-600';
             document.getElementById('paymentStatusHint').textContent = '';
             
-            document.getElementById('unifiedPaymentModal').classList.remove('hidden');
-            document.getElementById('unifiedPaymentModal').classList.add('flex');
-            
+            const modal = document.getElementById('unifiedPaymentModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            // Attach keyboard shortcuts: Enter processes payment, Escape cancels
+            attachModalKeyHandlers(modal, processUnifiedPayment, closeUnifiedPaymentModal, ['unifiedPaymentAmount','unifiedCustomerName']);
+
             setTimeout(() => document.getElementById('unifiedPaymentAmount').focus(), 100);
         }
 
         function closeUnifiedPaymentModal() {
-            document.getElementById('unifiedPaymentModal').classList.add('hidden');
-            document.getElementById('unifiedPaymentModal').classList.remove('flex');
+            const modal = document.getElementById('unifiedPaymentModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            // Detach keyboard handlers when closing the unified payment modal
+            detachModalKeyHandlers(modal);
         }
 
         function calculateUnifiedPayment() {
@@ -2945,13 +3603,19 @@ function removeDuplicateProducts() {
             document.getElementById('partialAmount').value = '';
             document.getElementById('debtAmount').textContent = formatCurrency(total);
             
-            document.getElementById('partialPaymentModal').classList.remove('hidden');
-            document.getElementById('partialPaymentModal').classList.add('flex');
+            const modal = document.getElementById('partialPaymentModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            // Attach keyboard shortcuts: Enter processes partial payment, Esc cancels
+            attachModalKeyHandlers(modal, processPartialPayment, closePartialPaymentModal, ['partialAmount','customerName']);
         }
 
         function closePartialPaymentModal() {
-            document.getElementById('partialPaymentModal').classList.add('hidden');
-            document.getElementById('partialPaymentModal').classList.remove('flex');
+            const modal = document.getElementById('partialPaymentModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            // Detach keyboard handlers when closing the partial payment modal
+            detachModalKeyHandlers(modal);
         }
 
         function calculatePartialDebt() {
@@ -3460,8 +4124,44 @@ function removeDuplicateProducts() {
             document.getElementById('grossProfit').textContent = formatCurrency(grossProfit);
             document.getElementById('profitMargin').textContent = `${profitMargin.toFixed(1)}% margin`;
             document.getElementById('roi').textContent = `${roi.toFixed(1)}%`;
+            // Compute and display the sedekah amount.  Sedekah is defined as
+            // 2.5% of the gross profit for the current period.  Ensure that the
+            // value does not become negative if gross profit is negative.  Use
+            // Math.max() to clamp at zero.  Display the result using
+            // formatCurrency() for consistency with other monetary values.
+            {
+                const sedekah = Math.max(grossProfit * 0.025, 0);
+                const sedekahEl = document.getElementById('sedekahAmount');
+                if (sedekahEl) {
+                    sedekahEl.textContent = formatCurrency(sedekah);
+                }
+            }
 
             updateProductAnalysisTable(todayTransactions);
+
+            // Reset analysis date offset and show navigation controls for the default 'Hari Ini' view.
+            // When users switch to the Analysis tab without selecting a custom period, we want them to
+            // immediately see the navigation for previous/next day.  Setting analysisDateOffset to 0
+            // ensures that the next call to updateAnalysis() behaves like a fresh 'today' filter.
+            analysisDateOffset = 0;
+            toggleAnalysisNavigation(true);
+            const navLabel = document.getElementById('analysisDateLabel');
+            if (navLabel) {
+                navLabel.textContent = formatDateForLabel(new Date());
+            }
+            // Highlight the 'Hari Ini' button as active by default
+            ['filterToday', 'filterWeek', 'filterMonth', 'filterAll'].forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) {
+                    btn.classList.remove('bg-green-500', 'text-white');
+                    btn.classList.add('bg-gray-300', 'text-gray-700');
+                }
+            });
+            const todayBtn2 = document.getElementById('filterToday');
+            if (todayBtn2) {
+                todayBtn2.classList.remove('bg-gray-300', 'text-gray-700');
+                todayBtn2.classList.add('bg-green-500', 'text-white');
+            }
         }
 
         function updateProductAnalysisTable(transactions) {
@@ -3532,6 +4232,20 @@ function removeDuplicateProducts() {
             document.getElementById('filter' + period.charAt(0).toUpperCase() + period.slice(1)).classList.remove('bg-gray-300', 'text-gray-700');
             document.getElementById('filter' + period.charAt(0).toUpperCase() + period.slice(1)).classList.add('bg-green-500', 'text-white');
 
+            // Reset the analysis date offset whenever a period filter is selected.
+            // Show or hide the previous/next day navigation controls depending on whether
+            // the user chose the 'today' filter.  Update the navigation label to today's date.
+            analysisDateOffset = 0;
+            if (period === 'today') {
+                toggleAnalysisNavigation(true);
+                const label = document.getElementById('analysisDateLabel');
+                if (label) {
+                    label.textContent = formatDateForLabel(new Date());
+                }
+            } else {
+                toggleAnalysisNavigation(false);
+            }
+
             const now = new Date();
             let filteredTransactions = [];
 
@@ -3593,6 +4307,17 @@ function removeDuplicateProducts() {
             document.getElementById('grossProfit').textContent = formatCurrency(grossProfit);
             document.getElementById('profitMargin').textContent = `${profitMargin.toFixed(1)}% margin`;
             document.getElementById('roi').textContent = `${roi.toFixed(1)}%`;
+            // Update the sedekah amount for the selected period.  Sedekah is
+            // defined as 2.5% of the gross profit.  Negative gross profit
+            // yields a zero sedekah.  Display using formatCurrency() so it
+            // matches the currency formatting of other metrics.
+            {
+                const sedekah = Math.max(grossProfit * 0.025, 0);
+                const sedekahEl = document.getElementById('sedekahAmount');
+                if (sedekahEl) {
+                    sedekahEl.textContent = formatCurrency(sedekah);
+                }
+            }
 
             updateProductAnalysisTable(filteredTransactions);
         }
@@ -3703,13 +4428,19 @@ function removeDuplicateProducts() {
             
             stockReportContainer.innerHTML = stockReportHTML;
 
-            document.getElementById('reportsModal').classList.remove('hidden');
-            document.getElementById('reportsModal').classList.add('flex');
+            const modalEl = document.getElementById('reportsModal');
+            modalEl.classList.remove('hidden');
+            modalEl.classList.add('flex');
+            // Attach keyboard shortcuts: Enter or Esc closes the reports modal
+            attachModalKeyHandlers(modalEl, closeReportsModal, closeReportsModal);
         }
 
         function closeReportsModal() {
-            document.getElementById('reportsModal').classList.add('hidden');
-            document.getElementById('reportsModal').classList.remove('flex');
+            const modalEl = document.getElementById('reportsModal');
+            modalEl.classList.add('hidden');
+            modalEl.classList.remove('flex');
+            // Detach keyboard handlers when closing the reports modal
+            detachModalKeyHandlers(modalEl);
         }
 
         // Debt payment functions
@@ -3770,6 +4501,8 @@ function removeDuplicateProducts() {
             const modal = document.getElementById('debtPaymentModal');
             modal.classList.remove('hidden');
             modal.style.display = 'block';
+            // Attach keyboard shortcuts: Enter processes debt payment, Esc cancels
+            attachModalKeyHandlers(modal, processDebtPayment, closeDebtPaymentModal, ['debtPaymentAmount']);
             
             setTimeout(() => document.getElementById('debtPaymentAmount').focus(), 100);
         }
@@ -3778,6 +4511,8 @@ function removeDuplicateProducts() {
             const modal = document.getElementById('debtPaymentModal');
             modal.classList.add('hidden');
             modal.style.display = 'none';
+            // Detach keyboard handlers when closing the debt payment modal
+            detachModalKeyHandlers(modal);
             currentDebtCustomer = '';
             currentDebtAmount = 0;
         }
@@ -6788,8 +7523,166 @@ function applyTheme(idx) {
 // Expose globally for inline onclick handlers
 window.applyTheme = applyTheme;
 
+// -----------------------------------------------------------------------------
+// Login functionality
+// -----------------------------------------------------------------------------
+/**
+ * Initialize the login overlay.  This function should be called once the
+ * DOM has finished loading.  It checks if a user is already logged in by
+ * reading from localStorage.  If so, the overlay is hidden.  Otherwise,
+ * the overlay is displayed, and a click handler is attached to the login
+ * button to process authentication via Google Apps Script.
+ */
+function initializeLogin() {
+    const loginOverlay = document.getElementById('loginOverlay');
+    const loginButton = document.getElementById('loginButton');
+    if (!loginOverlay || !loginButton) {
+        return;
+    }
+    // Determine login state and show or hide overlay accordingly
+    const loggedIn = localStorage.getItem('loggedIn') === 'true';
+    if (loggedIn) {
+        loginOverlay.classList.add('hidden');
+    } else {
+        loginOverlay.classList.remove('hidden');
+    }
+    // Toggle visibility of the logout button based on login state
+    const logoutBtn = document.getElementById('logoutButton');
+    if (logoutBtn) {
+        if (loggedIn) {
+            logoutBtn.classList.remove('hidden');
+        } else {
+            logoutBtn.classList.add('hidden');
+        }
+    }
+    // Attach click handler once
+    loginButton.addEventListener('click', loginUser);
+
+    // Allow pressing Enter in the login form to trigger login.  Attach a handler
+    // to both username and password input fields that listens for the Enter key
+    // and calls loginUser() when pressed.  This improves usability by
+    // removing the need to click the login button with the mouse.
+    const usernameField = document.getElementById('loginUsername');
+    const passwordField = document.getElementById('loginPassword');
+    function enterHandler(event) {
+        if (event.key === 'Enter') {
+            // Prevent form submission or default behavior
+            event.preventDefault();
+            loginUser();
+        }
+    }
+    if (usernameField) {
+        usernameField.addEventListener('keypress', enterHandler);
+    }
+    if (passwordField) {
+        passwordField.addEventListener('keypress', enterHandler);
+    }
+}
+
+/**
+ * Authenticate the user against the Google Apps Script endpoint.  It sends
+ * the username and password as query parameters to the script URL with
+ * action=login.  The Apps Script should return JSON with a 'success'
+ * property and optionally a 'message' or 'user' object.  On success, this
+ * function stores the login state in localStorage and hides the overlay.
+ * On failure, it displays an error message.
+ */
+async function loginUser() {
+    const usernameInput = document.getElementById('loginUsername');
+    const passwordInput = document.getElementById('loginPassword');
+    const errorDiv = document.getElementById('loginError');
+    const overlay = document.getElementById('loginOverlay');
+    if (!usernameInput || !passwordInput || !errorDiv || !overlay) {
+        return;
+    }
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
+    // Hide any previous error message
+    errorDiv.classList.add('hidden');
+    // Simple validation: ensure fields are not empty
+    if (!username || !password) {
+        errorDiv.textContent = 'Nama pengguna dan kata sandi wajib diisi.';
+        errorDiv.classList.remove('hidden');
+        return;
+    }
+    try {
+        const params = new URLSearchParams({
+            action: 'login',
+            username: username,
+            password: password
+        });
+        const response = await fetch(`${GOOGLE_APPS_SCRIPT_URL}?${params.toString()}`);
+        if (!response.ok) {
+            throw new Error('Network error: ' + response.status);
+        }
+        const result = await response.json();
+        if (result.success) {
+            // Save login state
+            localStorage.setItem('loggedIn', 'true');
+            if (result.user) {
+                localStorage.setItem('loggedUser', JSON.stringify(result.user));
+            }
+            overlay.classList.add('hidden');
+            // Show the logout button now that the user is logged in
+            const logoutBtn = document.getElementById('logoutButton');
+            if (logoutBtn) {
+                logoutBtn.classList.remove('hidden');
+            }
+        } else {
+            // Display error returned from server or generic message
+            const message = result.message || 'Nama pengguna atau kata sandi salah.';
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+    } catch (err) {
+        console.error('Login error:', err);
+        errorDiv.textContent = 'Terjadi kesalahan saat masuk. Silakan coba lagi.';
+        errorDiv.classList.remove('hidden');
+    }
+}
+
+/**
+ * Log out the current user.  This function clears any stored login state
+ * from localStorage, hides the logout button and shows the login overlay
+ * again so that another user can authenticate.  After logging out, the
+ * application remains loaded but interaction is blocked by the overlay.
+ */
+function logout() {
+    // Remove login-related keys from localStorage
+    localStorage.removeItem('loggedIn');
+    localStorage.removeItem('loggedUser');
+    // Show the login overlay again
+    const overlay = document.getElementById('loginOverlay');
+    if (overlay) {
+        overlay.classList.remove('hidden');
+    }
+    // Hide the logout button
+    const btn = document.getElementById('logoutButton');
+    if (btn) {
+        btn.classList.add('hidden');
+    }
+
+    // Clear the username and password fields so they are blank for the next login
+    const usernameField = document.getElementById('loginUsername');
+    if (usernameField) {
+        usernameField.value = '';
+    }
+    const passwordField = document.getElementById('loginPassword');
+    if (passwordField) {
+        passwordField.value = '';
+    }
+}
+// Expose login functions to allow external scripts or debugging if needed
+window.initializeLogin = initializeLogin;
+window.loginUser = loginUser;
+window.logout = logout;
+
 // Apply the default theme (Theme 1) once the DOM is fully loaded. This
 // ensures consistent styling from the moment the page finishes rendering.
 document.addEventListener('DOMContentLoaded', () => {
     applyTheme(1);
+    // After applying the default theme, initialize the login overlay.
+    // This ensures the login overlay is properly toggled based on the stored login state
+    // before the user interacts with the application.
+    initializeLogin();
 });
