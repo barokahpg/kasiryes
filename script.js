@@ -51,6 +51,14 @@ try {
 }
 
 /**
+ * Indicates whether we are currently importing data from Google Sheets.  When true,
+ * calls to saveData() should not mark data as dirty or trigger an automatic
+ * synchronisation.  This prevents re-exporting freshly imported data back to
+ * Google Sheets (which could result in duplicates).
+ */
+let isImporting = false;
+
+/**
  * Mark the data as dirty, indicating that there are local changes which
  * haven't yet been exported to Google Sheets.  This function sets the
  * `syncPending` flag and persists it to localStorage.  It then immediately
@@ -103,10 +111,11 @@ async function syncPendingData(showLoader = false) {
         if (showLoader) {
             showLoading('Menyinkronkan data...');
         }
-        // Perform a silent export (no alerts); exportDataToGoogleSheets
-        // returns a promise so we await it
-        await exportDataToGoogleSheets(true);
-        // Clear pending flag after successful export
+        // Perform an incremental sync to avoid overwriting entire sheets.  This
+        // sends each product, sale and debt row individually via the Apps
+        // Script update endpoint.  Use silent mode to suppress alerts.
+        await syncDataIncrementally(true);
+        // Clear pending flag after successful sync
         syncPending = false;
         try {
             localStorage.setItem('kasir_sync_pending', 'false');
@@ -1182,9 +1191,13 @@ function attachSearchListeners() {
             localStorage.setItem('kasir_products', JSON.stringify(products));
             localStorage.setItem('kasir_sales', JSON.stringify(salesData));
             localStorage.setItem('kasir_debt', JSON.stringify(debtData));
-            // Mark data as dirty so it can be synchronised when network is available
-            // This call will set the syncPending flag and attempt a silent sync
-            markDataAsDirty();
+            // Mark data as dirty only when not importing.  During imports we don't
+            // want to immediately re-export the freshly imported data.
+            if (!isImporting) {
+                // Mark data as dirty so it can be synchronised when network is available
+                // This call will set the syncPending flag and attempt a silent sync
+                markDataAsDirty();
+            }
         }
 
         /**
@@ -4194,6 +4207,22 @@ function removeDuplicateProducts() {
         // Analysis functions
         function updateAnalysis() {
             const today = new Date();
+            // If there are no transactions for today but there is historical data,
+            // automatically show a broader period instead of leaving the analysis empty.  This
+            // improves the user experience by displaying meaningful statistics when data
+            // exists but not for the current day.
+            if (Array.isArray(salesData) && salesData.length > 0) {
+                const hasToday = salesData.some(t => {
+                    if (!t || !t.timestamp) return false;
+                    const transactionDate = new Date(t.timestamp);
+                    return transactionDate.toDateString() === today.toDateString();
+                });
+                if (!hasToday) {
+                    // Default to showing all transactions when no sales exist for today.
+                    filterAnalysis('all');
+                    return;
+                }
+            }
             const todayTransactions = salesData.filter(t => {
                 if (!t.timestamp) return false;
                 const transactionDate = new Date(t.timestamp);
@@ -5101,6 +5130,102 @@ async function exportDataToGoogleSheets(silent = false) {
     }
 }
 
+/**
+ * Synchronise the local data to Google Sheets using incremental updates.  Instead of
+ * clearing the entire sheet, this function iterates over every product, sale and debt
+ * row and performs an `update` action via the Apps Script endpoint.  This approach
+ * minimises the chance of race conditions because it does not delete any existing
+ * rows on the server; instead it updates rows with matching IDs or appends new
+ * ones if they do not exist.  Note that this function does not handle deletions;
+ * rows removed locally will remain on the server.  If you need to remove rows,
+ * call delete actions separately before invoking this function.
+ *
+ * @param {boolean} silent If true, suppress user alerts and show no overlay.
+ */
+async function syncDataIncrementally(silent = false) {
+    if (!GOOGLE_APPS_SCRIPT_URL || GOOGLE_APPS_SCRIPT_URL.includes('PASTE')) {
+        if (!silent) {
+            alert('URL Google Apps Script belum diatur. Silakan ganti konstanta GOOGLE_APPS_SCRIPT_URL di script.js.');
+        }
+        return;
+    }
+    if (!silent) {
+        showLoading('Menyinkronkan data...');
+    }
+    // Build rows for products, sales and debts, similar to exportDataToGoogleSheets().
+    const productRows = products.map(p => [
+        p.id,
+        p.name,
+        p.price,
+        p.modalPrice,
+        p.barcode,
+        p.stock,
+        p.minStock,
+        p.wholesaleMinQty ?? '',
+        p.wholesalePrice ?? ''
+    ]);
+    const salesRows = salesData.map(s => [
+        s.id,
+        JSON.stringify(s.items),
+        s.subtotal,
+        s.discount,
+        s.total,
+        s.paid ?? '',
+        s.change ?? '',
+        (s.debt ?? s.remainingDebt ?? ''),
+        s.customerName ?? '',
+        s.timestamp,
+        s.type
+    ]);
+    const debtRows = debtData.map(d => [
+        d.customerName,
+        d.amount,
+        JSON.stringify(d.transactions)
+    ]);
+    // Helper to send update requests sequentially.  Because Google Apps Script
+    // may not handle high concurrency well, we await each fetch.  You could
+    // parallelise with Promise.all if your script supports concurrent writes.
+    async function updateRow(objectType, row) {
+        const payload = {
+            action: 'update',
+            objectType: objectType,
+            row: row
+        };
+        await fetch(GOOGLE_APPS_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify(payload)
+        });
+    }
+    try {
+        // Update products
+        for (const row of productRows) {
+            await updateRow('products', row);
+        }
+        // Update sales
+        for (const row of salesRows) {
+            await updateRow('sales', row);
+        }
+        // Update debts
+        for (const row of debtRows) {
+            await updateRow('debts', row);
+        }
+        if (!silent) {
+            alert('Data berhasil disinkronkan ke Google Sheets.');
+        }
+    } catch (err) {
+        if (!silent) {
+            alert('Sinkronisasi incremental gagal: ' + err.message);
+        } else {
+            console.error('Incremental sync failed:', err);
+        }
+    } finally {
+        if (!silent) {
+            hideLoading();
+        }
+    }
+}
+
         /**
          * Update the discount value for a specific item in the cart.
          * This function is called when the user changes the discount input
@@ -5339,7 +5464,16 @@ async function importDataFromGoogleSheets() {
                 // each unique combination.  See `removeDuplicateProducts()` for
                 // details.
                 removeDuplicateProducts();
+                // When importing from Google Sheets, temporarily disable dirty marking
+                // to avoid re-exporting the freshly imported data.  Once the import
+                // is done, re-enable and attempt to sync any previously pending data.
+                isImporting = true;
                 saveData();
+                isImporting = false;
+                // Synchronise any pending changes (if logged in and online).  This
+                // will not re-export the imported data because syncPending is false
+                // unless there were prior unsynchronised edits.
+                syncPendingData();
                 // refresh UI
                 displaySavedProducts();
                 displayScannerProductTable();

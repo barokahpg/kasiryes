@@ -7,10 +7,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Link external stylesheet for custom styles -->
     <link rel="stylesheet" href="style.css">
-    <!-- Manifest for Progressive Web App support -->
-    <link rel="manifest" href="manifest.json">
-    <!-- Theme color for mobile browser chrome -->
-    <meta name="theme-color" content="#0f172a">
     <style>
         body {
             box-sizing: border-box;
@@ -1281,23 +1277,5 @@
 
     <!-- Load application script after external libraries to ensure symbols are defined -->
     <script src="script.js"></script>
-
-    <!-- Register the service worker for PWA support.  This script checks for
-         service worker support in the browser and registers our service-worker.js
-         when the window has finished loading.  If the registration fails,
-         it logs an error to the console but does not interrupt the app. -->
-    <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function() {
-        navigator.serviceWorker.register('service-worker.js')
-          .then(function(registration) {
-            console.log('ServiceWorker registration successful with scope:', registration.scope);
-          })
-          .catch(function(error) {
-            console.warn('ServiceWorker registration failed:', error);
-          });
-      });
-    }
-    </script>
 </body>
 </html>
