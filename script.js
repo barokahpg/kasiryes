@@ -18,6 +18,118 @@ let holdData = [];
 // resetting to "Hari Ini" will reset this offset back to 0.
 let analysisDateOffset = 0;
 
+// ---------------------------------------------------------------------------
+// Offline sync state
+//
+// The application keeps a copy of products, salesData and debtData in
+// localStorage so that it can function without a network connection.  When
+// modifications are made to these data structures, the changes are saved
+// locally but not immediately sent to Google Sheets.  To track unsynced
+// changes, we maintain a `syncPending` flag.  When set to true, it means
+// there are updates that haven't been exported to Google Sheets yet.  This
+// flag is persisted in localStorage so that offline edits made during a
+// previous session will still be recognized when the user returns.
+//
+// When the network connection becomes available (navigator.onLine) and the
+// user is logged in, the application will automatically attempt to send
+// pending changes using exportDataToGoogleSheets(true).  After a successful
+// export, the flag is cleared.
+
+/**
+ * Indicates whether there are unsynced changes that need to be exported to
+ * Google Sheets.  Initialized from localStorage if available.  If localStorage
+ * cannot be accessed (e.g. in privacy mode), defaults to false.
+ * @type {boolean}
+ */
+let syncPending = false;
+try {
+    const pendingStr = localStorage.getItem('kasir_sync_pending');
+    // treat any truthy string ("true") as true
+    syncPending = pendingStr === 'true';
+} catch (err) {
+    syncPending = false;
+}
+
+/**
+ * Mark the data as dirty, indicating that there are local changes which
+ * haven't yet been exported to Google Sheets.  This function sets the
+ * `syncPending` flag and persists it to localStorage.  It then immediately
+ * attempts to synchronise if the network is online and the user is logged
+ * in.  The sync attempt is silent (no alerts) and will be retried on
+ * subsequent calls or when the network comes online.
+ */
+function markDataAsDirty() {
+    syncPending = true;
+    try {
+        localStorage.setItem('kasir_sync_pending', 'true');
+    } catch (err) {
+        // Ignore errors writing to localStorage (e.g. storage disabled)
+    }
+    // Attempt an immediate sync if possible (silent).  If offline or not
+    // logged in, the call will return without doing anything.
+    syncPendingData();
+}
+
+/**
+ * Attempt to synchronise any pending changes with Google Sheets.  This
+ * function checks whether `syncPending` is true, whether the network is
+ * currently online, and whether the user is logged in (so that the
+ * export request can be authenticated).  If all conditions are met, it
+ * calls exportDataToGoogleSheets(true) to perform a silent export.  On
+ * success, the pending flag is cleared and persisted.  Errors are logged
+ * to the console and pending data remains queued for the next attempt.
+ *
+ * @param {boolean} [showLoading=false] Whether to show the loading overlay.  When
+ * running automatically, we default to not showing the loading overlay to
+ * avoid interrupting the user.  Manual calls can pass true to show
+ * progress.
+ */
+async function syncPendingData(showLoader = false) {
+    // Only attempt sync if there is data pending
+    if (!syncPending) return;
+    // Do nothing if offline (network unavailable)
+    if (!navigator.onLine) return;
+    // Ensure the user is logged in before attempting to export.  Without a
+    // valid session the export will fail; skip until login is performed.
+    try {
+        const loggedIn = localStorage.getItem('loggedIn') === 'true';
+        if (!loggedIn) return;
+    } catch (err) {
+        // Unable to read localStorage; assume not logged in
+        return;
+    }
+    try {
+        // If showLoader is true, show the overlay; otherwise, run silent
+        if (showLoader) {
+            showLoading('Menyinkronkan data...');
+        }
+        // Perform a silent export (no alerts); exportDataToGoogleSheets
+        // returns a promise so we await it
+        await exportDataToGoogleSheets(true);
+        // Clear pending flag after successful export
+        syncPending = false;
+        try {
+            localStorage.setItem('kasir_sync_pending', 'false');
+        } catch (err) {
+            // ignore
+        }
+    } catch (err) {
+        console.error('Automatic sync failed:', err);
+        // Keep syncPending true so that another attempt is made later
+    } finally {
+        if (showLoader) {
+            hideLoading();
+        }
+    }
+}
+
+// Listen for the browser coming online.  When connectivity is restored,
+// attempt to synchronise any pending changes.  The sync call is silent so
+// that the user is not interrupted.
+window.addEventListener('online', () => {
+    syncPendingData();
+});
+
 /**
  * Format a Date object into a human‑readable string for display in the analysis
  * date navigation.  Uses the local Indonesian locale and a short month name.
@@ -1070,6 +1182,9 @@ function attachSearchListeners() {
             localStorage.setItem('kasir_products', JSON.stringify(products));
             localStorage.setItem('kasir_sales', JSON.stringify(salesData));
             localStorage.setItem('kasir_debt', JSON.stringify(debtData));
+            // Mark data as dirty so it can be synchronised when network is available
+            // This call will set the syncPending flag and attempt a silent sync
+            markDataAsDirty();
         }
 
         /**
@@ -7577,6 +7692,15 @@ function initializeLogin() {
     if (passwordField) {
         passwordField.addEventListener('keypress', enterHandler);
     }
+
+    // If a user is already logged in on page load, attempt to synchronise any
+    // pending data immediately.  This call is silent and will only run if
+    // syncPending is true and network connectivity is available.  We do this
+    // outside of the event handlers so that returning users see their data
+    // updated without additional actions.
+    if (loggedIn) {
+        syncPendingData();
+    }
 }
 
 /**
@@ -7628,6 +7752,11 @@ async function loginUser() {
             if (logoutBtn) {
                 logoutBtn.classList.remove('hidden');
             }
+
+            // After a successful login, attempt to synchronise any pending
+            // offline changes.  This call is silent and will only run if
+            // syncPending is true and the network is available.
+            syncPendingData();
         } else {
             // Display error returned from server or generic message
             const message = result.message || 'Nama pengguna atau kata sandi salah.';
