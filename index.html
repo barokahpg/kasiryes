@@ -380,17 +380,17 @@
                         </div>
 
                         <!-- Product Table -->
-                        <div class="overflow-x-auto bg-white rounded-lg shadow-sm">
-                            <table class="w-full text-sm">
-                                <thead class="bg-gray-100">
+                        <div class="overflow-x-auto">
+                            <table class="w-full bg-white border border-gray-200 rounded-lg text-sm">
+                                <thead class="bg-gray-50">
                                     <tr>
                                         <!-- Header order updated to match cart columns rendered by displayScannerProductTable():
                                              Nama Produk | Harga | Jumlah | Total | Aksi -->
-                                        <th class="px-3 py-2 text-left font-semibold text-gray-700">Nama Produk</th>
-                                        <th class="px-3 py-2 text-right font-semibold text-gray-700">Harga</th>
-                                        <th class="px-3 py-2 text-center font-semibold text-gray-700">Jumlah</th>
-                                        <th class="px-3 py-2 text-right font-semibold text-gray-700">Total</th>
-                                        <th class="px-3 py-2 text-center font-semibold text-gray-700">Aksi</th>
+                                        <th class="px-4 py-3 text-left font-semibold text-gray-700">Nama Produk</th>
+                                        <th class="px-4 py-3 text-right font-semibold text-gray-700">Harga</th>
+                                        <th class="px-4 py-3 text-center font-semibold text-gray-700">Jumlah</th>
+                                        <th class="px-4 py-3 text-right font-semibold text-gray-700">Total</th>
+                                        <th class="px-4 py-3 text-center font-semibold text-gray-700">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody id="scannerProductTable">
@@ -1247,6 +1247,10 @@
          Styling uses Tailwind CSS classes to ensure consistency with the rest of the design and supports
          dark mode using the existing classes. -->
     <div id="loginOverlay" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70 z-50 hidden">
+        <!-- Wrap the login card in a form so pressing Enter or clicking the login button submits the form.
+             The form has an ID so that JavaScript can attach a single submit handler. We avoid calling
+             loginUser() inline to prevent duplicate invocations from both click and submit events. -->
+        <form id="loginForm">
         <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg w-80">
             <h2 class="text-xl font-bold mb-4 text-center text-gray-800 dark:text-gray-100">Masuk</h2>
             <div class="mb-3">
@@ -1258,8 +1262,18 @@
                 <input type="password" id="loginPassword" class="w-full p-2 border rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Masukkan kata sandi" />
             </div>
             <div id="loginError" class="mb-3 text-sm text-red-600 dark:text-red-400 hidden">Nama pengguna atau kata sandi salah.</div>
-            <button id="loginButton" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg font-semibold transition-colors active:bg-blue-700">Login</button>
+            <!-- Loading indicator: displayed while the app verifies the user's credentials -->
+            <div id="loginLoading" class="mb-3 text-sm text-blue-600 hidden flex items-center space-x-2">
+                <!-- Simple spinner using Tailwind's animate-spin class. The SVG rotates continuously to indicate activity. -->
+                <svg class="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                </svg>
+                <span>Sedang memeriksa…</span>
+            </div>
+            <button id="loginButton" type="submit" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg font-semibold transition-colors active:bg-blue-700">Login</button>
         </div>
+        </form>
     </div>
 
     <!-- Load external JavaScript libraries -->

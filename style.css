@@ -165,32 +165,69 @@ body {
 /*
  * Product list text visibility.
  *
- * Outside of the hover state, some users prefer a consistent high-contrast
- * appearance for the names of products listed in the scanner table and in
- * the floating cart. To satisfy this requirement, we set the default
- * text color on all rows within the scanner product table and for each
- * individual cart item to black with a subtle white stroke. This makes
- * the text readable on both light and dark backgrounds and provides a
- * unified look across the product lists.
+ * Adjust the default text color for product names and totals in the
+ * scanner table and floating cart to a very light grey. Dark themes
+ * often suffer from insufficient contrast when using dark text on a dark
+ * background. To improve readability, we switch to a near‑white color and
+ * remove the stroke effect. The !important flag ensures our color
+ * overrides Tailwind's default `text-gray-*` classes.
  */
 #scannerProductTable,
 #cartItems {
-    /* Apply black text with a white outline to all text within the scanner table
-       and floating cart. Setting the color on the container ensures that all
-       descendants inherit these values, even if Tailwind utility classes would
-       normally set a different color. The !important flag gives our rule
-       precedence. */
-    color: #000000 !important;
-    -webkit-text-stroke: 0.5px #ffffff !important;
+    /* Use a light color for text (similar to Tailwind's `gray-100`) to achieve
+       a contrast ratio above 4.5:1 on dark backgrounds. */
+    color: #F9FAFB !important;
+    /* Remove text stroke which previously attempted to outline dark text.
+       This avoids blurred edges and halos that reduce legibility. */
+    -webkit-text-stroke: 0 !important;
 }
 
-/* Make sure all elements inside the scanner table and cart inherit the text
-   color and stroke defined above. Without this rule some nested tags might
-   override the inherited stroke, causing inconsistent outlines. */
+/* Ensure nested elements inherit the light text color consistently. */
 #scannerProductTable *,
 #cartItems * {
     color: inherit !important;
     -webkit-text-stroke: inherit !important;
+}
+
+/*
+ * Quantity input visibility.
+ *
+ * The quantity inputs inside the scanner cart table use Tailwind's default styling,
+ * which results in dark text on a dark background in dark mode. To ensure the
+ * numbers remain clearly visible, we force a white background and dark text.
+ */
+#scannerProductTable input[type="number"] {
+    /* Maintain a white background and dark text for maximum contrast in dark themes */
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    /* Increase the font size and weight so the quantity is easier to read.  
+       WCAG guidelines relax contrast requirements for larger, bold text (14pt/18pt)【817870873684698†L31-L38】, so
+       bumping the font makes the number stand out without sacrificing accessibility. */
+    font-size: 1.25rem !important; /* ~20px */
+    font-weight: 700 !important;
+    /* Apply a subtle glow around the input to create a halo effect.  
+       WCAG techniques recommend using a halo or outline to ensure text stands out against complex backgrounds【817870873684698†L52-L76】.  
+       Here we use a greenish glow matching the theme colors to draw attention to the quantity field. */
+    box-shadow: 0 0 4px rgba(16, 185, 129, 0.8), 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+/*
+ * Match the scanner tab's cart list style to the Analysis tab table.
+ * Increase horizontal padding and apply a bold font to all cells within
+ * the scanner product table.  The padding (0.75rem vertical and 1rem horizontal)
+ * aligns with the 'py-3 px-4' classes used in the analysis table header.
+ * Bold text improves readability and emphasises the items, mirroring the
+ * analytical view while retaining larger font sizes set on specific elements.
+ */
+/*
+ * Improve the scanner cart row appearance.
+ * Increase horizontal padding and apply a bold font weight to all cells in the
+ * scanner product table.  The !important flag ensures our style overrides
+ * Tailwind's default font weights applied via utility classes.
+ */
+#scannerProductTable td {
+    padding: 0.75rem 1rem;
+    font-weight: 700 !important;
 }
 
 /*
@@ -267,3 +304,77 @@ textarea {
 #navWrapper {
     top: 30% !important;
 }
+
+/* -----------------------------------------------------------------------------
+ * Transaction History Accessibility Adjustments
+ *
+ * In the Riwayat (history) tab, Tailwind's default hover backgrounds (e.g.
+ * `hover:bg-gray-50` and `hover:bg-blue-50`) can lighten table rows on dark
+ * themes. Combined with inherited light text colors, this can render cell
+ * contents nearly invisible when a row is selected or hovered. To remedy
+ * this, we explicitly set dark text with a white outline on all rows and
+ * reinforce the styling on hover. Additionally, the filter dropdown is
+ * forced to use a white background with dark text to maintain contrast
+ * regardless of theme.
+ */
+
+/* Reset transaction history text styling to allow default theme colors.
+   Removing the previous bold, dark grey rules lets the table adopt the
+   standard styling used in the Analisa tab, creating a consistent look. */
+
+/*
+ * Override the default Tailwind hover highlight color for rows in the
+ * transaction history table.  A medium dark grey is used instead of
+ * light grey so that the highlight remains subtle within a dark-themed
+ * interface while still providing a clear indication of the hovered row.
+ */
+#transactionHistory tr:hover {
+    background-color: #374151 !important; /* Tailwind gray‑700 */
+}
+
+
+/* Improve visibility of the transaction history filter dropdown. Without this
+   rule the select element may inherit a dark background and light text from
+   theme styles, making the options hard to read. Setting a white
+   background and dark text provides consistent contrast. */
+#historyFilter,
+#historyFilter option {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}
+
+/*
+ * Suggestion list highlight readability.
+ *
+ * When navigating product suggestions with arrow keys or hovering over items,
+ * the row receives a dark blue background (via bg-blue-600 or bg-blue-700) and
+ * a white foreground class.  However, nested elements within the row may
+ * retain their original colour classes (e.g. text-green-600 or text-gray-400),
+ * resulting in poor contrast on the dark background.  These rules force all
+ * descendants of a highlighted or hovered suggestion row to inherit the
+ * white foreground colour, preserving legibility in dark themes.
+ */
+#productSuggestions .bg-blue-700 *,
+#productSuggestions .bg-blue-600 * {
+    color: #ffffff !important;
+}
+
+/*
+ * Add a light yellow background to all cells in the transaction history
+ * table.  This subtle yellow provides a gentle contrast behind the blue,
+ * bold text, improving legibility without overpowering the overall dark
+ * theme.  The !important flag ensures the background color persists even
+ * when Tailwind hover utilities are applied to rows.
+ */
+/*
+ * Apply a subtle pastel background to each cell in the transaction history
+ * table.  This maintains the traditional table layout (row and column
+ * structure) while providing a gentle highlight behind the dark text.  A
+ * soft sky‑blue tone is chosen to differentiate the row from the dark
+ * application background without being harsh or distracting.
+ */
+
+/* Remove custom background color for transaction history cells.  With no
+   explicit background on the cells, the table uses the same dark scheme
+   as the Analisa tab, and rows are delineated by borders and hover states. */
+

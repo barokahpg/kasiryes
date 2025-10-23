@@ -659,11 +659,22 @@ function showAlertLayer(message, callback) {
     messageEl.textContent = message;
     overlay.classList.remove('hidden');
     function handler() {
+        // Remove both the click and keydown handlers when closing
         okBtn.removeEventListener('click', handler);
+        document.removeEventListener('keydown', keyHandler);
         overlay.classList.add('hidden');
         if (typeof callback === 'function') callback();
     }
+    // Handle Enter key presses anywhere on the page while the alert is visible.
+    function keyHandler(event) {
+        // Only react when overlay is visible and the pressed key is Enter
+        if (!overlay.classList.contains('hidden') && event.key === 'Enter') {
+            event.preventDefault();
+            handler();
+        }
+    }
     okBtn.addEventListener('click', handler);
+    document.addEventListener('keydown', keyHandler);
 }
 // Expose globally so other functions or inline handlers can call it directly
 window.showAlertLayer = showAlertLayer;
@@ -1889,35 +1900,36 @@ function removeDuplicateProducts() {
             // continue scrolling through the entire filtered list using the
             // arrow keys or mouse wheel.
             suggestionsContainer.innerHTML = filteredProducts.map(product => {
-                const stockBadge = product.stock === 0 ? 
+                const stockBadge = product.stock === 0 ?
                     '<span class="text-xs bg-red-500 text-white px-2 py-1 rounded ml-2">HABIS</span>' :
                     product.stock <= product.minStock ?
                     '<span class="text-xs bg-yellow-500 text-white px-2 py-1 rounded ml-2">MENIPIS</span>' : '';
 
                 return `
                     <!--
-                      Each suggestion row uses a light blue hover state.  Compared to
-                      the previous yellow highlight, the blue provides stronger
-                      contrast against both the dark and light UI themes while
-                      keeping the text easy to read.  When highlighted via
-                      keyboard navigation the row will receive a darker blue
-                      background (bg-blue-200) applied in highlightSuggestionAtIndex().
+                      Each suggestion row uses a darker blue hover state to improve contrast
+                      on dark themes.  The previous light blue highlight made dark text
+                      difficult to read.  By switching to a mid‑tone blue and forcing the
+                      text color to white on hover (via the hover:text-white utility), the
+                      suggestion remains legible when the user hovers or selects it.  When
+                      highlighted via keyboard navigation the row will receive an even
+                      darker blue background (bg-blue-700) applied in highlightSuggestionAtIndex().
                     -->
-                    <div class="p-3 hover:bg-blue-100 cursor-pointer border-b border-gray-100 last:border-b-0 ${product.stock === 0 ? 'opacity-50' : ''}"
+                    <div class="p-3 hover:bg-blue-600 hover:text-white group cursor-pointer border-b border-gray-100 last:border-b-0 ${product.stock === 0 ? 'opacity-50' : ''}"
                          data-product-id="${product.id}"
                          onclick="selectProductFromSuggestion(${product.id})">
                         <div class="flex justify-between items-center">
                             <div class="flex-1">
-                                <div class="font-semibold text-gray-800 text-sm truncate">
+                                <div class="font-semibold text-gray-100 text-sm truncate group-hover:text-white">
                                     ${product.name}${stockBadge}
                                 </div>
-                                <div class="text-xs text-gray-600">
+                                <div class="text-xs text-gray-400 group-hover:text-gray-200">
                                     ${product.barcode ? `Barcode: ${product.barcode}` : 'Tanpa barcode'} | Stok: ${product.stock}
                                 </div>
                             </div>
                             <div class="text-right ml-2">
-                                <div class="font-bold text-green-600 text-sm">${formatCurrency(product.price)}</div>
-                                <div class="text-xs text-gray-500">${product.stock === 0 ? 'Stok habis' : 'Tap untuk tambah'}</div>
+                                <div class="font-bold text-green-600 text-sm group-hover:text-white">${formatCurrency(product.price)}</div>
+                                <div class="text-xs text-gray-500 group-hover:text-gray-200">${product.stock === 0 ? 'Stok habis' : 'Tap untuk tambah'}</div>
                             </div>
                         </div>
                     </div>
@@ -1953,6 +1965,11 @@ function removeDuplicateProducts() {
             // Also remove the updated highlight colour class in case the
             // configuration has changed.  See highlightSuggestionAtIndex().
             items[i].classList.remove('bg-blue-300');
+            // Remove the darker highlight class and text colour applied when navigating
+            // suggestions with arrow keys.  This ensures that newly generated
+            // suggestions do not retain the old highlight styling.
+            items[i].classList.remove('bg-blue-700');
+            items[i].classList.remove('text-white');
         }
     }
 
@@ -1970,13 +1987,12 @@ function removeDuplicateProducts() {
         const items = container.children;
         clearSuggestionHighlights();
         if (index >= 0 && index < items.length) {
-            // Apply a more visible highlight colour.  Blue (200) contrasts well
-            // against both light and dark backgrounds, ensuring the suggestion
-            // remains legible when selected via keyboard navigation.
-            // Apply a more visible highlight colour.  A slightly darker blue
-            // (bg-blue-300) improves contrast against both light and dark
-            // backgrounds, ensuring that the suggestion text remains legible.
-            items[index].classList.add('bg-blue-300');
+            // Apply a more visible highlight colour.  We use a dark blue (700) with a
+            // white foreground to maintain high contrast on both dark and light themes.
+            // The previous light blue (200/300) made the dark text difficult to read
+            // when the row was selected.  Adding the text-white class ensures the
+            // suggestion label remains legible while highlighted.
+            items[index].classList.add('bg-blue-700', 'text-white');
             // Ensure the highlighted item is visible by scrolling it into view.
             // Use the 'nearest' block option so that scrolling only occurs when
             // the item is outside the visible portion of the suggestion list.
@@ -2512,8 +2528,10 @@ function removeDuplicateProducts() {
                             <div class="font-bold text-gray-800 text-lg">${item.name}${isServiceItem ? '<span class="bg-purple-500 text-white px-1 rounded text-xs ml-1">🔧 JASA</span>' : ''}</div>
                             ${isServiceItem && item.description ? `<div class="text-xs text-purple-600 italic mt-1">"${item.description}"</div>` : ''}
                         </td>
-                        <td class="px-3 py-3 text-right text-lg">${formatCurrency(item.price)}</td>
-                        <td class="px-3 py-3 text-center text-lg">
+                        <td class="px-3 py-3 text-right text-lg font-bold">
+                            ${formatCurrency(item.price)}
+                        </td>
+                        <td class="px-3 py-3 text-center text-lg font-bold">
                             ${isServiceItem ? '1' : `
                                 <div class="flex items-center justify-center space-x-1">
                                     <button onclick="updateQuantity(${item.id}, -1)" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded text-sm">-</button>
@@ -7936,28 +7954,44 @@ function initializeLogin() {
             logoutBtn.classList.add('hidden');
         }
     }
-    // Attach click handler once
-    loginButton.addEventListener('click', loginUser);
+    // Attach a single submit handler to the login form.  This ensures both clicking the login button
+    // and pressing Enter in the username/password fields trigger loginUser() exactly once.  We
+    // prevent the default submit behaviour to avoid a page reload.  Note: we intentionally do not
+    // attach a separate click listener to the login button, because submitting the form already
+    // triggers this handler and avoids duplicate calls.
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        // Remove any existing submit listeners to prevent duplicate bindings if initializeLogin()
+        // is accidentally called more than once.
+        loginForm.onsubmit = null;
+        loginForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            loginUser();
+        });
+    }
 
-    // Allow pressing Enter in the login form to trigger login.  Attach a handler
-    // to both username and password input fields that listens for the Enter key
-    // and calls loginUser() when pressed.  This improves usability by
-    // removing the need to click the login button with the mouse.
+    // Bind Enter key on username and password inputs to trigger login.  While the form's submit
+    // handler should normally fire when the user presses Enter, browsers may not submit forms
+    // automatically when multiple inputs are present.  This explicit handler ensures pressing
+    // Enter in either field triggers loginUser() exactly once.  Duplicate handlers are cleared
+    // by overwriting the onkeydown property prior to assignment.
     const usernameField = document.getElementById('loginUsername');
     const passwordField = document.getElementById('loginPassword');
-    function enterHandler(event) {
-        if (event.key === 'Enter') {
-            // Prevent form submission or default behavior
-            event.preventDefault();
-            loginUser();
-        }
-    }
-    if (usernameField) {
-        usernameField.addEventListener('keypress', enterHandler);
-    }
-    if (passwordField) {
-        passwordField.addEventListener('keypress', enterHandler);
-    }
+    const bindEnterKey = (input) => {
+        if (!input) return;
+        input.onkeydown = null;
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                loginUser();
+            }
+        });
+    };
+    bindEnterKey(usernameField);
+    bindEnterKey(passwordField);
+
+    // We no longer need a click handler here because the form's submit event covers both button
+    // clicks and pressing Enter.  Additional keypress listeners are unnecessary.
 
     // If a user is already logged in on page load, attempt to synchronise any
     // pending data immediately.  This call is silent and will only run if
@@ -7982,6 +8016,9 @@ async function loginUser() {
     const passwordInput = document.getElementById('loginPassword');
     const errorDiv = document.getElementById('loginError');
     const overlay = document.getElementById('loginOverlay');
+    // Elements for loading state and login button
+    const loadingDiv = document.getElementById('loginLoading');
+    const loginBtn = document.getElementById('loginButton');
     if (!usernameInput || !passwordInput || !errorDiv || !overlay) {
         return;
     }
@@ -7994,6 +8031,15 @@ async function loginUser() {
         errorDiv.textContent = 'Nama pengguna dan kata sandi wajib diisi.';
         errorDiv.classList.remove('hidden');
         return;
+    }
+    // Show loading indicator and disable the login button while verifying credentials
+    if (loadingDiv) {
+        loadingDiv.classList.remove('hidden');
+    }
+    if (loginBtn) {
+        loginBtn.disabled = true;
+        // Add classes to visually indicate disabled state
+        loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
     }
     try {
         const params = new URLSearchParams({
@@ -8023,16 +8069,40 @@ async function loginUser() {
             // offline changes.  This call is silent and will only run if
             // syncPending is true and the network is available.
             syncPendingData();
+            // Hide loading indicator and re-enable login button
+            if (loadingDiv) {
+                loadingDiv.classList.add('hidden');
+            }
+            if (loginBtn) {
+                loginBtn.disabled = false;
+                loginBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
         } else {
             // Display error returned from server or generic message
             const message = result.message || 'Nama pengguna atau kata sandi salah.';
             errorDiv.textContent = message;
             errorDiv.classList.remove('hidden');
+            // Hide loading indicator and re-enable login button on error
+            if (loadingDiv) {
+                loadingDiv.classList.add('hidden');
+            }
+            if (loginBtn) {
+                loginBtn.disabled = false;
+                loginBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
         }
     } catch (err) {
         console.error('Login error:', err);
         errorDiv.textContent = 'Terjadi kesalahan saat masuk. Silakan coba lagi.';
         errorDiv.classList.remove('hidden');
+        // Hide loading indicator and re-enable login button on network or code error
+        if (loadingDiv) {
+            loadingDiv.classList.add('hidden');
+        }
+        if (loginBtn) {
+            loginBtn.disabled = false;
+            loginBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
     }
 }
 
