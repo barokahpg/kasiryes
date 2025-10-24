@@ -2093,7 +2093,8 @@ function removeDuplicateProducts() {
                     isWholesale: isWholesale,
                     // per-item discount fields (default no discount)
                     discountValue: 0,
-                    discountType: 'percent'
+                    // Default per‑item discount type is nominal (Rp) instead of percentage.
+                    discountType: 'amount'
                 });
             }
             
@@ -2215,9 +2216,9 @@ function removeDuplicateProducts() {
                 description: description || null,
                 // store modalPrice if provided for profit calculations
                 modalPrice: modalPrice > 0 ? modalPrice : undefined,
-                // per-item discount fields for services (default no discount)
+                // per-item discount fields for services (default no discount).  By default, service items use nominal (Rp) discounts rather than percentage.
                 discountValue: 0,
-                discountType: 'percent'
+                discountType: 'amount'
             };
 
             cart.push(serviceItem);
@@ -2262,15 +2263,16 @@ function removeDuplicateProducts() {
                                 <!-- Per‑item discount controls: allow percentage or nominal discount per product -->
                                 <div class="mt-1 flex items-center space-x-1 text-xs text-gray-600">
                                     <span>Diskon:</span>
-                                    <input type="number" value="${item.discountValue || 0}" min="0"
-                                           class="w-12 px-1 py-0 border rounded text-right text-xs"
-                                           onchange="updateItemDiscount('${itemId}', this.value)"
-                                           onclick="this.select()">
+                                    <!-- Place the discount type selector (Rp/% dropdown) before the numeric input to align with scanner table ordering -->
                                     <select class="px-1 py-0 border rounded text-xs"
                                             onchange="updateItemDiscountType('${itemId}', this.value)">
                                         <option value="percent" ${item.discountType === 'percent' ? 'selected' : ''}>%</option>
                                         <option value="amount" ${item.discountType === 'amount' ? 'selected' : ''}>Rp</option>
                                     </select>
+                                    <input type="number" value="${item.discountValue || 0}" min="0"
+                                           class="w-20 px-1 py-0 border rounded text-right text-xs"
+                                           onchange="updateItemDiscount('${itemId}', this.value)"
+                                           onclick="this.select()">
                                 </div>
                             </div>
                             <div class="flex items-center space-x-1 ml-2">
@@ -2294,6 +2296,13 @@ function removeDuplicateProducts() {
                     </div>
                 `;
             }).join('');
+
+            // Always update the scanner cart table when cart contents change.  Without
+            // this call, changes to per‑item discount or quantity only update the
+            // floating cart, leaving the scanner tab stale.  By refreshing the
+            // scanner table here, we ensure the row totals and discount values
+            // reflect the latest cart state.
+            displayScannerProductTable();
 
             // Update scanner tab list to reflect current cart items
             displayScannerProductTable();
@@ -2515,12 +2524,26 @@ function removeDuplicateProducts() {
             
             // Show cart items instead of product list in the scanner tab
             if (cart.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-500">Keranjang masih kosong</td></tr>';
+                // When adding new columns to the scanner cart (e.g. Diskon (Rp)), update the colspan accordingly.
+                tableBody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">Keranjang masih kosong</td></tr>';
                 return;
             }
 
             tableBody.innerHTML = cart.map(item => {
+                // Determine if this is a service item (no quantity adjustments and price may be zero)
                 const isServiceItem = item.isService || item.price === 0;
+                // Compute the item's subtotal and discount.  The discount is based on
+                // the per‑item discount value and type.  If the discount exceeds the
+                // subtotal, clamp it to the subtotal so totals never go negative.
+                const itemSubtotal = item.price * item.quantity;
+                let itemDiscount = 0;
+                if (item.discountType === 'percent') {
+                    itemDiscount = itemSubtotal * (item.discountValue || 0) / 100;
+                } else {
+                    itemDiscount = item.discountValue || 0;
+                }
+                if (itemDiscount > itemSubtotal) itemDiscount = itemSubtotal;
+                const itemTotal = itemSubtotal - itemDiscount;
                 return `
                     <tr class="border-b border-gray-100 hover:bg-blue-50">
                         <td class="px-3 py-3">
@@ -2544,7 +2567,22 @@ function removeDuplicateProducts() {
                                 </div>
                             `}
                         </td>
-                        <td class="px-3 py-3 text-right font-bold text-lg">${formatCurrency(item.price * item.quantity)}</td>
+                        <!-- New discount column with editable controls (type and value).  Place the type selector before the numeric field. -->
+                        <td class="px-3 py-3 text-center text-lg">
+                            <div class="flex items-center justify-center space-x-1">
+                                <select class="px-2 py-1 border rounded text-base"
+                                        onchange="updateItemDiscountType('${item.id}', this.value)">
+                                    <option value="percent" ${item.discountType === 'percent' ? 'selected' : ''}>%</option>
+                                    <option value="amount" ${item.discountType === 'amount' ? 'selected' : ''}>Rp</option>
+                                </select>
+                                <input type="number" value="${item.discountValue || 0}" min="0"
+                                       class="w-24 px-2 py-1 border rounded text-base text-right"
+                                       onchange="updateItemDiscount('${item.id}', this.value)"
+                                       onclick="this.select()">
+                            </div>
+                        </td>
+                        <!-- Display the row total after discount to align with the top total bayar notice -->
+                        <td class="px-3 py-3 text-right font-bold text-lg">${formatCurrency(itemTotal)}</td>
                         <td class="px-3 py-3 text-center text-lg">
                             <button onclick="removeFromCart('${item.id}')" class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm">×</button>
                         </td>

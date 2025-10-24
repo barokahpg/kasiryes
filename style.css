@@ -256,6 +256,19 @@ body {
 }
 
 /*
+ * Scanner discount selector visibility.
+ * The discount type selector (Rp / %) in the scanner cart table inherits the light text color from
+ * the table, which makes it unreadable against the dark background.  Override its styles to use
+ * a white background and dark text so the selected option ('Rp' or '%') is clearly visible.  Apply
+ * the same styles to the <option> elements to ensure consistent coloring when the dropdown is open.
+ */
+#scannerProductTable select,
+#scannerProductTable option {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}
+
+/*
  * Global input text color adjustment.
  *
  * Some themes apply light-colored text in form fields, which can be

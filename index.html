@@ -385,10 +385,13 @@
                                 <thead class="bg-gray-50">
                                     <tr>
                                         <!-- Header order updated to match cart columns rendered by displayScannerProductTable():
-                                             Nama Produk | Harga | Jumlah | Total | Aksi -->
+                                             Nama Produk | Harga | Jumlah | Diskon (Rp) | Total | Aksi -->
                                         <th class="px-4 py-3 text-left font-semibold text-gray-700">Nama Produk</th>
                                         <th class="px-4 py-3 text-right font-semibold text-gray-700">Harga</th>
                                         <th class="px-4 py-3 text-center font-semibold text-gray-700">Jumlah</th>
+                                        <!-- New Discount column shows per‑item discount in Rupiah -->
+                                        <!-- Center align the Diskon (Rp) header to match the centered discount controls in each row -->
+                                        <th class="px-4 py-3 text-center font-semibold text-gray-700">Diskon (Rp)</th>
                                         <th class="px-4 py-3 text-right font-semibold text-gray-700">Total</th>
                                         <th class="px-4 py-3 text-center font-semibold text-gray-700">Aksi</th>
                                     </tr>
@@ -716,14 +719,16 @@
                     <div class="flex justify-between text-sm">
                         <span class="font-semibold">Diskon:</span>
                         <div class="flex items-center space-x-2">
+                            <!-- Discount type selector: choose between percentage (%) or nominal (Rp).
+                                 Place the selector before the numeric input for consistency with per‑item discounts. -->
+                            <select id="discountType" class="px-2 py-1 border rounded text-xs" onchange="updateTotal()">
+                                <!-- Set 'amount' as the default selection so that discounts are nominal (Rp) by default -->
+                                <option value="percent">%</option>
+                                <option value="amount" selected>Rp</option>
+                            </select>
                             <!-- Discount value input: accepts either percentage or amount depending on the selected type -->
                             <input type="number" id="discountInput" value="0" min="0" 
                                    class="w-20 px-2 py-1 border rounded text-right text-xs" onchange="updateTotal()">
-                            <!-- Discount type selector: choose between percentage (%) or nominal (Rp) -->
-                            <select id="discountType" class="px-2 py-1 border rounded text-xs" onchange="updateTotal()">
-                                <option value="percent">%</option>
-                                <option value="amount">Rp</option>
-                            </select>
                         </div>
                     </div>
                     <hr class="border-gray-300">
