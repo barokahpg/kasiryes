@@ -95,9 +95,14 @@ function markDataAsDirty() {
     } catch (err) {
         // Ignore errors writing to localStorage (e.g. storage disabled)
     }
-    // Attempt an immediate sync if possible (silent).  If offline or not
-    // logged in, the call will return without doing anything.
-    syncPendingData();
+    // Previously this function would attempt an immediate synchronisation by
+    // calling syncPendingData() here.  However, automatic export of data can
+    // lead to race conditions (e.g. exports colliding with imports).  The
+    // application now leaves syncPending flagged until the user explicitly
+    // initiates a manual export.  Accordingly, we no longer call
+    // syncPendingData() from within markDataAsDirty().  Pending changes will
+    // be sent to Google Sheets only when the user taps the Export button on
+    // the Analisa tab.
 }
 
 /**
@@ -228,15 +233,14 @@ async function processPendingDeltas(silent = false) {
 }
 
 // Listen for the browser coming online.  When connectivity is restored,
-// attempt to synchronise any pending changes.  The sync call is silent so
-// that the user is not interrupted.
+// process any queued delta operations so that offline changes are updated
+// to Google Sheets automatically.  We intentionally avoid calling
+// syncPendingData() here to prevent full exports; only queued deltas
+// (add/update/delete operations) are sent when online.  If the queue is
+// empty or the user is not logged in, processPendingDeltas() will return
+// immediately without side effects.
 window.addEventListener('online', () => {
-    // First process queued delta operations and then attempt to synchronise
-    // any other pending changes.  Both calls are silent to avoid interfering
-    // with the user experience.
-    processPendingDeltas(true).then(() => {
-        syncPendingData();
-    });
+    processPendingDeltas(true);
 });
 
 /**
@@ -1359,6 +1363,11 @@ function attachSearchListeners() {
                     }
                 }
             }
+
+            // Update the hold sidebar next to the cart when hold count changes
+            if (typeof renderHoldSidebar === 'function') {
+                renderHoldSidebar();
+            }
         }
 
         /**
@@ -1470,6 +1479,48 @@ function attachSearchListeners() {
             }).join('');
             listEl.innerHTML = html;
         }
+
+        /**
+         * Render the list of held transactions inside the sidebar next to the cart.
+         * This sidebar will only be visible when there are held transactions.
+         */
+        function renderHoldSidebar() {
+            const box = document.getElementById('holdListBox');
+            const listEl = document.getElementById('holdSidebarList');
+            // If the DOM elements are not present, do nothing
+            if (!box || !listEl) return;
+            // If there are no held transactions, hide the entire box and clear its contents
+            if (!holdData || holdData.length === 0) {
+                box.classList.add('hidden');
+                listEl.innerHTML = '';
+                return;
+            }
+            // Show the box when holds exist
+            box.classList.remove('hidden');
+            // Build a compact card for each held entry.  We display the name (or Hold #),
+            // the number of items and provide buttons to resume or delete.
+            const html = holdData.map((entry, idx) => {
+                // Determine label: if user supplied a name, use it; otherwise generate a default label
+                const label = entry.name && entry.name.trim() !== '' ? entry.name : `Hold #${idx + 1}`;
+                const itemsCount = entry.items.reduce((sum, it) => sum + (it.quantity || 0), 0);
+                return `
+                    <div class="bg-white border border-gray-200 rounded-lg p-3 flex justify-between items-center shadow-sm">
+                        <div>
+                            <div class="font-semibold text-sm text-gray-800">${label}</div>
+                            <div class="text-xs text-gray-500">${itemsCount} item${itemsCount > 1 ? 's' : ''}</div>
+                        </div>
+                        <div class="flex space-x-1">
+                            <button onclick="resumeHold(${idx})" class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs">Lanjut</button>
+                            <button onclick="deleteHold(${idx})" class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            listEl.innerHTML = html;
+        }
+
+        // Expose the sidebar rendering function globally so it can be invoked from HTML attributes if needed
+        window.renderHoldSidebar = renderHoldSidebar;
 
         /**
          * Restore a held transaction back into the cart.
@@ -1599,9 +1650,22 @@ function attachSearchListeners() {
  * deduplication, the `products` array is updated in place.
  */
 function removeDuplicateProducts() {
-    if (!Array.isArray(products) || products.length === 0) return;
-    const seen = new Set();
-    const deduped = [];
+    // Ensure products is a valid array
+    if (!Array.isArray(products) || products.length === 0) {
+        return;
+    }
+    /*
+     * Deduplicate products by their identity fields (name, price, modalPrice,
+     * barcode, wholesale minimum quantity, wholesale price and service flag).
+     * When duplicates are found, the **last occurrence** is kept.  This
+     * behaviour is important when offline updates are merged into the
+     * imported data because the updated record will be appended to the
+     * products array.  If we were to keep the first occurrence, the
+     * freshly updated product would be discarded in favour of the remote
+     * record.  By keeping the last occurrence, we ensure that offline edits
+     * override the remote copy.
+     */
+    const map = new Map();
     for (const product of products) {
         const key = JSON.stringify([
             product.name ?? '',
@@ -1612,13 +1676,14 @@ function removeDuplicateProducts() {
             product.wholesalePrice ?? null,
             product.isService ?? false
         ]);
-        if (!seen.has(key)) {
-            seen.add(key);
-            deduped.push(product);
-        }
+        // Always overwrite with the latest product for this key
+        map.set(key, product);
     }
+    // Replace the products array with the deduplicated values
     products.length = 0;
-    products.push(...deduped);
+    for (const value of map.values()) {
+        products.push(value);
+    }
 }
 
         // Generate sample data
@@ -5496,6 +5561,94 @@ function debtToRow(debt) {
 }
 
 /**
+ * Apply pending delta operations to the imported data arrays.  When data is
+ * imported from Google Sheets while offline changes are still pending, the
+ * remote data could overwrite local modifications.  This helper merges
+ * each queued delta into the in-memory products, salesData and debtData
+ * arrays so that offline edits persist.  Each delta entry contains an
+ * action ('add', 'update' or 'delete'), an objectType ('products', 'sales' or
+ * 'debts') and a row array or ID.  The row arrays follow the same
+ * column order used by exportDataToGoogleSheets().  Note that wholesale
+ * fields may be optional and need to be parsed as numbers or null.
+ */
+function applyPendingDeltasToImportedData() {
+    if (!Array.isArray(pendingDeltas) || pendingDeltas.length === 0) {
+        return;
+    }
+    // Helper to parse optional numbers (similar to importDataFromGoogleSheets)
+    const parseOptionalNumber = (v) => {
+        if (v === undefined || v === null || v === '' || v === 'null' || v === 'undefined') {
+            return null;
+        }
+        const num = Number(v);
+        return Number.isNaN(num) ? null : num;
+    };
+    for (const delta of pendingDeltas) {
+        const type = delta.objectType;
+        if (type === 'products') {
+            if (delta.action === 'update' || delta.action === 'add') {
+                const row = delta.row;
+                // Convert row array back into a product object
+                const productObj = {
+                    id: parseInt(row[0]),
+                    name: row[1],
+                    price: Number(row[2]),
+                    modalPrice: Number(row[3]),
+                    barcode: row[4],
+                    stock: Number(row[5]),
+                    minStock: Number(row[6]),
+                    wholesaleMinQty: parseOptionalNumber(row[7]),
+                    wholesalePrice: parseOptionalNumber(row[8])
+                };
+                // Remove any existing product with the same ID
+                products = products.filter(p => String(p.id) !== String(productObj.id));
+                // Add the updated/new product
+                products.push(productObj);
+            } else if (delta.action === 'delete') {
+                const id = delta.id;
+                products = products.filter(p => String(p.id) !== String(id));
+            }
+        } else if (type === 'sales') {
+            if (delta.action === 'update' || delta.action === 'add') {
+                const row = delta.row;
+                const saleObj = {
+                    id: Number(row[0]),
+                    items: JSON.parse(row[1] || '[]'),
+                    subtotal: Number(row[2]),
+                    discount: Number(row[3]),
+                    total: Number(row[4]),
+                    paid: row[5] !== '' ? Number(row[5]) : undefined,
+                    change: row[6] !== '' ? Number(row[6]) : undefined,
+                    debt: row[7] !== '' ? Number(row[7]) : undefined,
+                    customerName: row[8] || undefined,
+                    timestamp: row[9],
+                    type: row[10]
+                };
+                salesData = salesData.filter(s => String(s.id) !== String(saleObj.id));
+                salesData.push(saleObj);
+            } else if (delta.action === 'delete') {
+                const id = delta.id;
+                salesData = salesData.filter(s => String(s.id) !== String(id));
+            }
+        } else if (type === 'debts') {
+            if (delta.action === 'update' || delta.action === 'add') {
+                const row = delta.row;
+                const debtObj = {
+                    customerName: row[0],
+                    amount: Number(row[1]),
+                    transactions: JSON.parse(row[2] || '[]')
+                };
+                debtData = debtData.filter(d => d.customerName !== debtObj.customerName);
+                debtData.push(debtObj);
+            } else if (delta.action === 'delete') {
+                const custName = delta.id;
+                debtData = debtData.filter(d => d.customerName !== custName);
+            }
+        }
+    }
+}
+
+/**
  * Send a single-row change to Google Sheets via the Apps Script. The payload
  * includes an action (add, update or delete), the object type (products,
  * sales, debts), and either a row array (for add/update) or an ID (for delete).
@@ -5510,56 +5663,56 @@ async function sendDeltaToGoogleSheets(action, objectType, rowOrId) {
         console.warn('URL Google Apps Script belum diatur. Perubahan tidak akan tersinkron.');
         return;
     }
-    // Construct a delta record to send or queue
+    // Construct a delta record
     const delta = { action: action, objectType: objectType };
     if (action === 'delete') {
         delta.id = rowOrId;
     } else {
         delta.row = rowOrId;
     }
-    // If offline, queue the delta and mark pending for later synchronisation
-    if (!navigator.onLine) {
-        pendingDeltas.push(delta);
-        try {
-            localStorage.setItem('kasir_pending_deltas', JSON.stringify(pendingDeltas));
-        } catch (err) {
-            // Ignore localStorage errors
-        }
-        syncPending = true;
-        try {
-            localStorage.setItem('kasir_sync_pending', 'true');
-        } catch (err) {
-            // ignore
-        }
-        return;
-    }
-    // Attempt to send the delta immediately when online
-    const payload = { action: delta.action, objectType: delta.objectType };
-    if (delta.action === 'delete') {
-        payload.id = delta.id;
-    } else {
-        payload.row = delta.row;
-    }
+    /*
+     * Always queue delta operations rather than attempting to send them
+     * immediately.  Even when the browser is online, the network
+     * connectivity to the Apps Script may be unreliable and sending
+     * updates synchronously can lead to race conditions with the import
+     * routine.  By enqueuing the delta and marking the data as pending,
+     * we guarantee that offline edits are persisted locally and will
+     * override imported data on the next import.  Deltas will be sent
+     * to Google Sheets when processPendingDeltas() runs (e.g. when
+     * network connectivity is restored or on manual export).
+     */
+    pendingDeltas.push(delta);
+    // Persist pending deltas
     try {
-        await fetch(GOOGLE_APPS_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify(payload)
-        });
+        localStorage.setItem('kasir_pending_deltas', JSON.stringify(pendingDeltas));
     } catch (err) {
-        console.error('Failed to sync change, queued for later:', err);
-        // On failure, queue the delta for retry
-        pendingDeltas.push(delta);
-        try {
-            localStorage.setItem('kasir_pending_deltas', JSON.stringify(pendingDeltas));
-        } catch (e) {
-            // ignore
-        }
-        syncPending = true;
-        try {
-            localStorage.setItem('kasir_sync_pending', 'true');
-        } catch (e) {}
+        // ignore
     }
+    // Mark data as pending for sync
+    syncPending = true;
+    try {
+        localStorage.setItem('kasir_sync_pending', 'true');
+    } catch (err) {
+        // ignore
+    }
+    /*
+     * If the device is currently online and the user is logged in, process
+     * the pending deltas immediately.  This allows transactions and
+     * product updates made while online to be synchronised to Google
+     * Sheets without waiting for a manual export.  When offline, the
+     * deltas remain in the queue and will be processed when the network
+     * connectivity is restored or when the user manually exports.
+     */
+    try {
+        const loggedIn = localStorage.getItem('loggedIn') === 'true';
+        if (navigator.onLine && loggedIn && !isImporting) {
+            // Use silent processing (no overlay) to avoid interrupting the user
+            processPendingDeltas(true);
+        }
+    } catch (err) {
+        // If localStorage is inaccessible, skip immediate sync
+    }
+    return;
 }
 
 /**
@@ -5641,6 +5794,71 @@ async function importDataFromGoogleSheets() {
                         transactions: JSON.parse(row[2] || '[]')
                     }));
                 }
+                // Before deduplicating and saving, apply any pending offline
+                // delta operations to the imported data.  Offline edits stored
+                // in pendingDeltas could otherwise be lost when remote data is
+                // imported.  This call merges queued updates/adds/deletes into
+                // the products, salesData and debtData arrays.
+                applyPendingDeltasToImportedData();
+
+                // If there are unsynchronised changes flagged by syncPending,
+                // overlay the locally stored products, sales and debt data
+                // onto the imported arrays.  This ensures that offline edits
+                // persisted in localStorage are not lost when the application
+                // automatically imports fresh data from Google Sheets.  The
+                // local records override remote records with matching IDs.
+                try {
+                    const syncFlag = localStorage.getItem('kasir_sync_pending') === 'true';
+                    if (syncFlag) {
+                        // Merge local products
+                        const storedProducts = localStorage.getItem('kasir_products');
+                        if (storedProducts) {
+                            const localProducts = JSON.parse(storedProducts);
+                            if (Array.isArray(localProducts)) {
+                                for (const lp of localProducts) {
+                                    const idx = products.findIndex(p => String(p.id) === String(lp.id));
+                                    if (idx !== -1) {
+                                        products[idx] = lp;
+                                    } else {
+                                        products.push(lp);
+                                    }
+                                }
+                            }
+                        }
+                        // Merge local sales
+                        const storedSales = localStorage.getItem('kasir_sales');
+                        if (storedSales) {
+                            const localSales = JSON.parse(storedSales);
+                            if (Array.isArray(localSales)) {
+                                for (const ls of localSales) {
+                                    const idx = salesData.findIndex(s => String(s.id) === String(ls.id));
+                                    if (idx !== -1) {
+                                        salesData[idx] = ls;
+                                    } else {
+                                        salesData.push(ls);
+                                    }
+                                }
+                            }
+                        }
+                        // Merge local debts
+                        const storedDebts = localStorage.getItem('kasir_debt');
+                        if (storedDebts) {
+                            const localDebts = JSON.parse(storedDebts);
+                            if (Array.isArray(localDebts)) {
+                                for (const ld of localDebts) {
+                                    const idx = debtData.findIndex(d => d.customerName === ld.customerName);
+                                    if (idx !== -1) {
+                                        debtData[idx] = ld;
+                                    } else {
+                                        debtData.push(ld);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (mergeErr) {
+                    console.error('Failed to merge local unsynced data:', mergeErr);
+                }
                 // Remove duplicate products before saving so the database and UI
                 // don't accumulate identical entries.  This deduplication
                 // compares product fields and keeps only the first occurrence of
@@ -5653,15 +5871,12 @@ async function importDataFromGoogleSheets() {
                 isImporting = true;
                 saveData();
                 isImporting = false;
-                // Synchronise any pending changes (if logged in and online).  If
-                // there were prior unsynchronised edits, syncPending would be true.
-                // However, because imports do not mark data as dirty, this will
-                // typically do nothing.  We intentionally omit automatic
-                // synchronisation here to avoid unnecessarily writing back to
-                // Google Sheets when there are no user edits.
-                if (syncPending) {
-                    syncPendingData();
-                }
+                // Previously the import routine attempted to automatically
+                // synchronise any pending changes after the import completed.
+                // Automatic exports have been disabled to prevent race
+                // conditions (exports running before imports finish).
+                // Pending changes remain flagged and will be exported only
+                // when the user performs a manual export.
                 // refresh UI
                 displaySavedProducts();
                 displayScannerProductTable();
@@ -8031,14 +8246,13 @@ function initializeLogin() {
     // We no longer need a click handler here because the form's submit event covers both button
     // clicks and pressing Enter.  Additional keypress listeners are unnecessary.
 
-    // If a user is already logged in on page load, attempt to synchronise any
-    // pending data immediately.  This call is silent and will only run if
-    // syncPending is true and network connectivity is available.  We do this
-    // outside of the event handlers so that returning users see their data
-    // updated without additional actions.
-    if (loggedIn) {
-        syncPendingData();
-    }
+    // If a user is already logged in on page load, we previously attempted
+    // to synchronise any pending data immediately.  Automatic synchronisation
+    // has been removed to avoid unexpected exports and potential data races.
+    // Pending changes will remain until the user manually triggers an export.
+    //if (loggedIn) {
+    //    syncPendingData();
+    //}
 }
 
 /**
@@ -8103,10 +8317,11 @@ async function loginUser() {
                 logoutBtn.classList.remove('hidden');
             }
 
-            // After a successful login, attempt to synchronise any pending
-            // offline changes.  This call is silent and will only run if
-            // syncPending is true and the network is available.
-            syncPendingData();
+            // After a successful login, process any queued delta operations
+            // created while offline.  This will send individual add/update/delete
+            // requests to the server without performing a full export.  If the
+            // queue is empty or the user is offline, this call returns immediately.
+            processPendingDeltas(true);
             // Hide loading indicator and re-enable login button
             if (loadingDiv) {
                 loadingDiv.classList.add('hidden');
@@ -8175,10 +8390,32 @@ function logout() {
         passwordField.value = '';
     }
 }
+
+/**
+ * Trigger a manual synchronisation of any pending changes to Google Sheets.
+ * This function should be invoked by the Export button on the Analisa tab.
+ * It calls syncPendingData(true) to process any offline deltas and
+ * perform an incremental sync, displaying a loading overlay during the
+ * operation.  Because automatic export has been disabled, this is the
+ * only mechanism by which changes are sent to Google Sheets.
+ */
+function manualExport() {
+    // Only attempt an export if there are pending changes.  If nothing is
+    // pending, simply notify the user and return.
+    if (!syncPending) {
+        alert('Tidak ada perubahan yang perlu diekspor.');
+        return;
+    }
+    // Trigger the synchronisation with a loading indicator.  The
+    // syncPendingData function will clear the pending flag on success.
+    syncPendingData(true);
+}
 // Expose login functions to allow external scripts or debugging if needed
 window.initializeLogin = initializeLogin;
 window.loginUser = loginUser;
 window.logout = logout;
+// Expose manual export function so it can be called from the Analisa tab
+window.manualExport = manualExport;
 
 // Apply the default theme (Theme 1) once the DOM is fully loaded. This
 // ensures consistent styling from the moment the page finishes rendering.
