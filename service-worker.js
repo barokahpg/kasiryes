@@ -1,103 +1,49 @@
-// service-worker.js
-//
-// This service worker enables offline support for the Kasir Warung POS
-// application.  It caches core assets (HTML, CSS, JS and JSON data) during
-// installation and serves them from the cache when offline.  It also
-// listens for the 'fetch' event to implement a cache‑first strategy for
-// same‑origin GET requests, falling back to the network if the resource
-// isn't in the cache.  For other requests (e.g. POST requests to Google
-// Apps Script), the service worker simply forwards the request without
-// caching.
+/*
+ * Service Worker for KasirYes
+ *
+ * This service worker is responsible for receiving background sync events
+ * triggered by the application via the SyncManager API.  When a sync
+ * event fires (e.g. when network connectivity returns), the service
+ * worker broadcasts a message to all connected clients (browser tabs)
+ * instructing them to process any queued pending deltas.  The actual
+ * synchronisation logic remains in the main application code, which
+ * responds to the 'sync' message by calling processPendingDeltas().
+ */
 
-const CACHE_NAME = 'kasiryes-cache-v1';
-
-// List of resources to precache on install.  These are the core files that
-// make up the application shell.  If you add more static assets (images,
-// fonts, additional scripts) they should be included here so that they are
-// available offline.  Note that relative URLs are relative to the origin
-// where the service worker is served (typically the root of the app).
-const PRECACHE_URLS = [
-  '.',
-  './index.html',
-  './script.js',
-  './style.css',
-  './database.json',
-  './manifest.json'
-];
-
-// During the install phase, open the cache and add the precache URLs.
 self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(PRECACHE_URLS);
-    })
-  );
+    // Skip waiting so that the newly installed service worker becomes
+    // active immediately.  Without this call, a new service worker
+    // waits until existing clients are closed before it takes control.
+    self.skipWaiting();
 });
 
-// Remove old caches during activation if the cache name has changed.
 self.addEventListener('activate', event => {
-  const cacheWhitelist = [CACHE_NAME];
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (!cacheWhitelist.includes(cacheName)) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
-  );
+    // Claim control of any existing clients as soon as the service
+    // worker activates.  This ensures that pages loaded before the
+    // service worker was installed can still receive messages.
+    event.waitUntil(self.clients.claim());
 });
 
-// Intercept fetch requests.  For GET requests to the same origin, respond
-// with the cached version if available, otherwise fetch from the network
-// and optionally store a copy in the cache.  For other requests (e.g. POST
-// requests or cross‑origin requests), simply forward the request to the
-// network without caching.
-self.addEventListener('fetch', event => {
-  const request = event.request;
-  // Only handle GET requests for same‑origin resources
-  if (request.method !== 'GET' || new URL(request.url).origin !== location.origin) {
-    return;
-  }
-  event.respondWith(
-    caches.match(request).then(response => {
-      if (response) {
-        // Found in cache, return it
-        return response;
-      }
-      // Not in cache, fetch from network
-      return fetch(request).then(networkResponse => {
-        // Optionally cache the fetched resource for future use
-        return caches.open(CACHE_NAME).then(cache => {
-          cache.put(request, networkResponse.clone());
-          return networkResponse;
-        });
-      }).catch(() => {
-        // Network fetch failed (offline) and resource not in cache
-        // Fallback: if the request is for HTML, return the offline shell (index.html)
-        if (request.headers.get('accept').includes('text/html')) {
-          return caches.match('./index.html');
-        }
-        // Otherwise, return a generic response or nothing
-        return new Response('Offline', { status: 503, statusText: 'Offline' });
-      });
-    })
-  );
-});
-
-// Listen for background sync events.  If you decide to implement background
-// synchronisation of unsent data (e.g. queued transactions), you can
-// handle those tasks here.  Currently this handler is a stub; the
-// application triggers its own sync when the network returns by listening
-// for the 'online' event in the main script.  You could extend this by
-// registering sync events with tags such as 'sync-data' and performing
-// queued tasks when the event fires.
 self.addEventListener('sync', event => {
-  if (event.tag === 'sync-data') {
-    // For example, you could read queued requests from IndexedDB and
-    // send them to the server here.
-    event.waitUntil(Promise.resolve());
-  }
+    if (event.tag === 'kasir-sync') {
+        event.waitUntil(handleSyncEvent());
+    }
 });
+
+/**
+ * Handle a sync event by notifying all connected clients.  We avoid
+ * performing fetches directly in the service worker to keep the logic
+ * contained in the page, where IndexedDB and other stateful APIs are
+ * already available.  If there are no clients, the message will be
+ * dropped silently.
+ */
+async function handleSyncEvent() {
+    try {
+        const clientList = await self.clients.matchAll({ includeUncontrolled: true });
+        for (const client of clientList) {
+            client.postMessage({ type: 'sync' });
+        }
+    } catch (err) {
+        // Ignore errors; background sync will retry automatically.
+    }
+}

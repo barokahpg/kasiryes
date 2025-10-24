@@ -51,6 +51,213 @@ try {
 // there are updates that haven't been exported to Google Sheets yet.  This
 // flag is persisted in localStorage so that offline edits made during a
 // previous session will still be recognized when the user returns.
+
+/**
+ * IndexedDB instance used for offline storage.  When IndexedDB is
+ * supported by the browser, this will hold a reference to the opened
+ * database.  If IndexedDB is not available or fails to open, this
+ * remains null and the application will fall back to localStorage only.
+ *
+ * We create object stores for products, sales data, debt data and
+ * pending deltas so that the application can function offline and
+ * persist large amounts of data beyond the 5 MB limit of localStorage.
+ */
+let dbInstance = null;
+
+/**
+ * Log of past synchronisation events.  Each entry is an object of
+ * shape { time: number, count: number }, where `time` is the
+ * timestamp (ms since epoch) when a sync completed and `count` is
+ * the number of pending deltas that were processed.  The log is
+ * persisted in localStorage under the key 'kasir_sync_history'.
+ */
+let syncHistory = [];
+try {
+    const savedHistory = localStorage.getItem('kasir_sync_history');
+    if (savedHistory) {
+        syncHistory = JSON.parse(savedHistory) || [];
+    }
+} catch (err) {
+    syncHistory = [];
+}
+
+/**
+ * Initialise the IndexedDB database for offline data storage.  Returns
+ * a promise that resolves when the database is ready or immediately
+ * resolves if IndexedDB is unavailable.  The database name is
+ * 'kasiryes-db' with version 1.  Four object stores are created:
+ *  - 'products' with keyPath 'id'
+ *  - 'salesData' with keyPath 'id' and autoIncrement true
+ *  - 'debtData' with keyPath 'id' and autoIncrement true
+ *  - 'pendingDeltas' with autoIncrement true
+ */
+function initIndexedDB() {
+    return new Promise((resolve) => {
+        // Abort if IndexedDB is not supported
+        if (!('indexedDB' in window)) {
+            resolve();
+            return;
+        }
+        try {
+            const request = indexedDB.open('kasiryes-db', 1);
+            request.onupgradeneeded = function(event) {
+                const db = event.target.result;
+                // Create stores if they don't exist
+                if (!db.objectStoreNames.contains('products')) {
+                    db.createObjectStore('products', { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains('salesData')) {
+                    db.createObjectStore('salesData', { keyPath: 'id', autoIncrement: true });
+                }
+                if (!db.objectStoreNames.contains('debtData')) {
+                    db.createObjectStore('debtData', { keyPath: 'id', autoIncrement: true });
+                }
+                if (!db.objectStoreNames.contains('pendingDeltas')) {
+                    db.createObjectStore('pendingDeltas', { autoIncrement: true });
+                }
+            };
+            request.onsuccess = function(event) {
+                dbInstance = event.target.result;
+                resolve();
+            };
+            request.onerror = function(event) {
+                console.warn('IndexedDB initialization failed:', event.target.error);
+                // Fail silently and resolve so app can fall back to localStorage
+                resolve();
+            };
+        } catch (e) {
+            // Catch security errors (e.g. private browsing) and resolve
+            console.warn('IndexedDB not available:', e);
+            resolve();
+        }
+    });
+}
+
+/**
+ * Load data from IndexedDB into in-memory variables.  If stores are
+ * empty or IndexedDB is not available, global variables retain their
+ * current values (e.g. loaded from localStorage).  This function
+ * reads all entries from 'products', 'salesData', 'debtData' and
+ * 'pendingDeltas' stores using getAll() and assigns them to the
+ * global variables.  Duplicate product records are removed via
+ * removeDuplicateProducts().  After loading, updateSyncStatus() is
+ * called to reflect pending deltas count.
+ */
+async function loadFromIndexedDB() {
+    if (!dbInstance) {
+        return;
+    }
+    try {
+        const tx = dbInstance.transaction(['products', 'salesData', 'debtData', 'pendingDeltas'], 'readonly');
+        const pStore = tx.objectStore('products');
+        const sStore = tx.objectStore('salesData');
+        const dStore = tx.objectStore('debtData');
+        const deltasStore = tx.objectStore('pendingDeltas');
+        const [productsReq, salesReq, debtReq, deltasReq] = [pStore.getAll(), sStore.getAll(), dStore.getAll(), deltasStore.getAll()];
+        await Promise.all([
+            new Promise(res => { productsReq.onsuccess = res; productsReq.onerror = res; }),
+            new Promise(res => { salesReq.onsuccess = res; salesReq.onerror = res; }),
+            new Promise(res => { debtReq.onsuccess = res; debtReq.onerror = res; }),
+            new Promise(res => { deltasReq.onsuccess = res; deltasReq.onerror = res; })
+        ]);
+        const loadedProducts = productsReq.result || [];
+        const loadedSales = salesReq.result || [];
+        const loadedDebt = debtReq.result || [];
+        const loadedDeltas = deltasReq.result || [];
+        if (Array.isArray(loadedProducts) && loadedProducts.length > 0) {
+            products = loadedProducts;
+            // remove duplicates that may exist in DB
+            if (typeof removeDuplicateProducts === 'function') {
+                removeDuplicateProducts();
+            }
+        }
+        if (Array.isArray(loadedSales) && loadedSales.length > 0) {
+            salesData = loadedSales;
+        }
+        if (Array.isArray(loadedDebt) && loadedDebt.length > 0) {
+            debtData = loadedDebt;
+        }
+        if (Array.isArray(loadedDeltas) && loadedDeltas.length > 0) {
+            pendingDeltas = loadedDeltas;
+            // Persist to localStorage for redundancy
+            try {
+                localStorage.setItem('kasir_pending_deltas', JSON.stringify(pendingDeltas));
+            } catch (err) {
+                // ignore
+            }
+        }
+        // Update UI after loading
+        updateSyncStatus();
+    } catch (e) {
+        console.warn('Failed to load data from IndexedDB:', e);
+    }
+}
+
+/**
+ * Save an array of records to an IndexedDB object store.  All existing
+ * records in the store are cleared first, then each element of
+ * dataArray is written.  If dbInstance is null, this function does
+ * nothing.  Any errors are logged but do not throw.
+ *
+ * @param {string} storeName The name of the object store to write.
+ * @param {Array} dataArray  The array of objects to save.
+ */
+function saveToIndexedDB(storeName, dataArray) {
+    if (!dbInstance) return;
+    try {
+        const tx = dbInstance.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        // Clear existing data then add new records
+        const clearReq = store.clear();
+        clearReq.onsuccess = function() {
+            if (Array.isArray(dataArray)) {
+                dataArray.forEach(item => {
+                    try {
+                        store.put(item);
+                    } catch (err) {
+                        // ignore individual put errors
+                    }
+                });
+            }
+        };
+        clearReq.onerror = function() {
+            // ignore clear error
+        };
+    } catch (err) {
+        console.warn('Failed to save to IndexedDB store', storeName, err);
+    }
+}
+
+/**
+ * Persist the current pendingDeltas array to both localStorage and
+ * IndexedDB.  This helper should be called whenever the pendingDeltas
+ * array is modified (e.g. in sendDeltaToGoogleSheets or after
+ * processing deltas).  It also updates the sync status indicator.
+ */
+function persistPendingDeltas() {
+    try {
+        localStorage.setItem('kasir_pending_deltas', JSON.stringify(pendingDeltas));
+    } catch (err) {
+        // ignore
+    }
+    if (dbInstance) {
+        try {
+            const tx = dbInstance.transaction('pendingDeltas', 'readwrite');
+            const store = tx.objectStore('pendingDeltas');
+            // Clear existing entries then reinsert the current queue
+            const clearReq = store.clear();
+            clearReq.onsuccess = function() {
+                pendingDeltas.forEach(item => {
+                    try { store.put(item); } catch (err) { /* ignore */ }
+                });
+            };
+        } catch (err) {
+            console.warn('Failed to persist pending deltas to IndexedDB:', err);
+        }
+    }
+    // Update sync UI to reflect new queue size
+    updateSyncStatus();
+}
 //
 // When the network connection becomes available (navigator.onLine) and the
 // user is logged in, the application will automatically attempt to send
@@ -79,6 +286,230 @@ try {
  * Google Sheets (which could result in duplicates).
  */
 let isImporting = false;
+
+/**
+ * Determine whether automatic sync of pending deltas is enabled.  When
+ * true (default), pending changes are sent to Google Sheets automatically
+ * when connectivity and login are available.  When false, pending
+ * operations remain queued until the user initiates a manual export or
+ * toggles auto sync back on.  The state persists in localStorage to
+ * survive page reloads.
+ * @type {boolean}
+ */
+let autoSyncEnabled = true;
+try {
+    const autoSyncStr = localStorage.getItem('kasir_auto_sync');
+    if (autoSyncStr === 'false') {
+        autoSyncEnabled = false;
+    }
+} catch (err) {
+    autoSyncEnabled = true;
+}
+
+/**
+ * Last time (milliseconds since epoch) when a successful sync of pending
+ * changes occurred.  Stored in localStorage under 'kasir_last_sync_time'
+ * and used to display sync status to the user.  Null if no sync has
+ * occurred yet.
+ * @type {number|null}
+ */
+let lastSyncTime = null;
+try {
+    const storedLast = localStorage.getItem('kasir_last_sync_time');
+    if (storedLast) {
+        lastSyncTime = parseInt(storedLast, 10);
+    }
+} catch (err) {
+    lastSyncTime = null;
+}
+
+// Initialise IndexedDB and load persisted data.  This runs as soon as
+// the script loads, ensuring that any previously saved products,
+// sales data, debt data and pending deltas stored in IndexedDB are
+// restored into memory.  If IndexedDB is unavailable, this call
+// resolves immediately and data will continue to come from
+// localStorage.  Errors are logged in initIndexedDB().
+initIndexedDB().then(loadFromIndexedDB);
+
+/**
+ * Format a timestamp (ms since epoch) into a human-readable date/time string
+ * in the Indonesian locale.  Returns a string like '21 Oktober 2025 13.45'.
+ * @param {number|string|null} ts
+ * @returns {string}
+ */
+function formatDateTime(ts) {
+    if (!ts) return '';
+    const date = new Date(Number(ts));
+    return date.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+}
+
+/**
+ * Update the sync status indicator, auto-sync toggle label and pending
+ * changes badge in the UI.  This function reads the current values of
+ * autoSyncEnabled, pendingDeltas, syncPending and lastSyncTime to build
+ * the display.  Call this after changing any of those states or when
+ * network connectivity changes.
+ */
+function updateSyncStatus() {
+    const statusEl = document.getElementById('syncStatus');
+    const toggleBtn = document.getElementById('autoSyncToggle');
+    const pendingBtn = document.getElementById('pendingChangesButton');
+    const pendingCountEl = document.getElementById('pendingCount');
+    // Determine status text and classes
+    if (statusEl) {
+        let statusText = '';
+        if (!navigator.onLine) {
+            statusText = '🔌 Offline - Perubahan akan diantre';
+            statusEl.className = 'text-red-600 text-xs sm:text-sm font-semibold';
+        } else if (pendingDeltas.length > 0 || syncPending) {
+            statusText = '⏳ Sinkronisasi tertunda';
+            statusEl.className = 'text-yellow-600 text-xs sm:text-sm font-semibold';
+        } else {
+            const formatted = lastSyncTime ? formatDateTime(lastSyncTime) : '';
+            statusText = formatted ? '✅ Tersinkron (terakhir: ' + formatted + ')' : '✅ Tersinkron';
+            statusEl.className = 'text-green-600 text-xs sm:text-sm font-semibold';
+        }
+        statusEl.textContent = statusText;
+    }
+    if (toggleBtn) {
+        toggleBtn.textContent = autoSyncEnabled ? 'Auto Sync: ON' : 'Auto Sync: OFF';
+        // Reset classes before applying new ones
+        toggleBtn.classList.remove('bg-green-500','bg-gray-300','text-white','text-gray-800');
+        if (autoSyncEnabled) {
+            toggleBtn.classList.add('bg-green-500','text-white');
+        } else {
+            toggleBtn.classList.add('bg-gray-300','text-gray-800');
+        }
+    }
+    if (pendingBtn && pendingCountEl) {
+        const count = pendingDeltas.length;
+        pendingCountEl.textContent = String(count);
+        if (count > 0) {
+            pendingBtn.classList.remove('hidden');
+        } else {
+            pendingBtn.classList.add('hidden');
+        }
+    }
+
+    // Update sync history buttons and their counters.  The desktop button is
+    // hidden on small screens via Tailwind classes (`hidden sm:inline-flex`),
+    // while the mobile button (`sm:hidden`) shows on small screens only.
+    const countHistory = Array.isArray(syncHistory) ? syncHistory.length : 0;
+    const historyCountEl = document.getElementById('historyCount');
+    if (historyCountEl) {
+        historyCountEl.textContent = String(countHistory);
+    }
+    const historyCountMobileEl = document.getElementById('historyCountMobile');
+    if (historyCountMobileEl) {
+        historyCountMobileEl.textContent = String(countHistory);
+    }
+}
+
+/**
+ * Toggle the automatic processing of pending deltas.  When auto sync is
+ * enabled, any queued deltas will be sent automatically when connectivity
+ * and login are available.  When disabled, queued deltas remain until
+ * manual export or toggling back on.  After toggling, the UI status
+ * indicators are updated and an immediate attempt is made to process
+ * deltas if auto sync has been turned on and the device is online.
+ */
+function toggleAutoSync() {
+    autoSyncEnabled = !autoSyncEnabled;
+    try {
+        localStorage.setItem('kasir_auto_sync', autoSyncEnabled ? 'true' : 'false');
+    } catch (err) {
+        // ignore
+    }
+    updateSyncStatus();
+    if (autoSyncEnabled && navigator.onLine) {
+        processPendingDeltas(true);
+    }
+}
+
+/**
+ * Display the modal listing all pending delta operations.  Each entry
+ * shows its index and a brief description based on action and object type.
+ */
+function showPendingChangesModal() {
+    const modal = document.getElementById('pendingChangesModal');
+    const listEl = document.getElementById('pendingChangesList');
+    if (!modal || !listEl) return;
+    listEl.innerHTML = '';
+    pendingDeltas.forEach((delta, idx) => {
+        let desc = '';
+        if (delta.action === 'add') {
+            const label = Array.isArray(delta.row) ? (delta.row[1] || delta.row[0]) : '';
+            desc = 'Tambah ' + delta.objectType + (label ? ' (' + label + ')' : '');
+        } else if (delta.action === 'update') {
+            const label = Array.isArray(delta.row) ? delta.row[0] : delta.id;
+            desc = 'Perbarui ' + delta.objectType + (label ? ' (' + label + ')' : '');
+        } else if (delta.action === 'delete') {
+            desc = 'Hapus ' + delta.objectType + (delta.id ? ' (' + delta.id + ')' : '');
+        } else {
+            desc = delta.action + ' ' + delta.objectType;
+        }
+        const div = document.createElement('div');
+        div.className = 'border-b border-gray-200 py-1';
+        div.textContent = (idx + 1) + '. ' + desc;
+        listEl.appendChild(div);
+    });
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+/**
+ * Hide the pending changes modal.  Used by the close button.
+ */
+function closePendingChangesModal() {
+    const modal = document.getElementById('pendingChangesModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
+
+/**
+ * Display the sync history modal.  Lists all recorded sync events in
+ * reverse chronological order (latest first).  Each entry shows the
+ * formatted date/time and the number of pending deltas processed.  If
+ * there is no history, a placeholder message is shown.  The modal is
+ * hidden by default and becomes flex when opened.
+ */
+function showSyncHistoryModal() {
+    const modal = document.getElementById('syncHistoryModal');
+    const listEl = document.getElementById('syncHistoryList');
+    if (!modal || !listEl) return;
+    listEl.innerHTML = '';
+    if (!syncHistory || syncHistory.length === 0) {
+        const div = document.createElement('div');
+        div.className = 'py-1 text-gray-600';
+        div.textContent = 'Belum ada riwayat sinkron.';
+        listEl.appendChild(div);
+    } else {
+        const historyCopy = syncHistory.slice().reverse();
+        historyCopy.forEach((log, idx) => {
+            const row = document.createElement('div');
+            row.className = 'border-b border-gray-200 py-1';
+            const timeStr = log.time ? formatDateTime(log.time) : '';
+            const countStr = (log.count !== undefined && log.count !== null) ? `${log.count} perubahan` : '';
+            row.textContent = `${idx + 1}. ${timeStr}${countStr ? ' – ' + countStr : ''}`;
+            listEl.appendChild(row);
+        });
+    }
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+/**
+ * Hide the sync history modal.  Used by the close button in the modal.
+ */
+function closeSyncHistoryModal() {
+    const modal = document.getElementById('syncHistoryModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
 
 /**
  * Mark the data as dirty, indicating that there are local changes which
@@ -159,6 +590,8 @@ async function syncPendingData(showLoader = false) {
             } catch (err) {
                 // ignore
             }
+            // Update UI status after successful sync
+            updateSyncStatus();
         }
     } catch (err) {
         console.error('Automatic sync failed:', err);
@@ -201,6 +634,7 @@ async function processPendingDeltas(silent = false) {
         showLoading('Menyinkronkan perubahan offline...');
     }
     try {
+        let processedCount = 0;
         for (let i = 0; i < pendingDeltas.length; i++) {
             const delta = pendingDeltas[i];
             const payload = { action: delta.action, objectType: delta.objectType };
@@ -214,13 +648,37 @@ async function processPendingDeltas(silent = false) {
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify(payload)
             });
+            processedCount++;
         }
         // Clear the queue after successful processing
         pendingDeltas = [];
+        // Persist empty queue to storage
+        persistPendingDeltas();
+        // Reset the syncPending flag because all deltas have been sent.
+        // Previously we relied on a full sync (syncDataIncrementally) to clear
+        // this flag, but processing pending deltas fully synchronises the
+        // operations recorded while offline (add/update/delete) so we can
+        // safely mark the data as synced.  This prevents the UI from
+        // showing "Sinkronisasi tertunda" when no operations remain.
+        syncPending = false;
         try {
-            localStorage.setItem('kasir_pending_deltas', JSON.stringify([]));
+            localStorage.setItem('kasir_sync_pending', 'false');
+        } catch (err) {
+            /* ignore localStorage errors */
+        }
+        // Record the last successful sync time and persist it
+        lastSyncTime = Date.now();
+        try {
+            localStorage.setItem('kasir_last_sync_time', String(lastSyncTime));
         } catch (err) {
             // ignore
+        }
+        // Log this sync event in the history with the number of processed deltas
+        try {
+            syncHistory.push({ time: lastSyncTime, count: processedCount });
+            localStorage.setItem('kasir_sync_history', JSON.stringify(syncHistory));
+        } catch (err) {
+            // ignore history persistence errors
         }
     } catch (err) {
         console.error('Failed to process pending deltas:', err);
@@ -229,18 +687,53 @@ async function processPendingDeltas(silent = false) {
         if (!silent) {
             hideLoading();
         }
+        // Update UI status regardless of outcome
+        updateSyncStatus();
     }
 }
 
-// Listen for the browser coming online.  When connectivity is restored,
-// process any queued delta operations so that offline changes are updated
-// to Google Sheets automatically.  We intentionally avoid calling
-// syncPendingData() here to prevent full exports; only queued deltas
-// (add/update/delete operations) are sent when online.  If the queue is
-// empty or the user is not logged in, processPendingDeltas() will return
-// immediately without side effects.
+// Listen for network connectivity changes.  When the browser comes online,
+// update the sync status indicator and, if auto sync is enabled,
+// process any queued delta operations.  When offline, simply update the status.
 window.addEventListener('online', () => {
-    processPendingDeltas(true);
+    updateSyncStatus();
+    if (autoSyncEnabled) {
+        processPendingDeltas(true);
+    }
+});
+window.addEventListener('offline', () => {
+    updateSyncStatus();
+});
+
+// On page load register the service worker, listen for sync messages and set up
+// periodic synchronisation.  Using the 'load' event ensures the DOM is
+// ready and service worker registration does not block rendering.
+window.addEventListener('load', () => {
+    // Register service worker if supported.  The service worker listens for
+    // background sync events and will post a message back to this page
+    // requesting pending deltas to be processed.  Ignore registration
+    // failures silently.
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('service-worker.js').catch(err => {
+            console.warn('Service worker registration failed:', err);
+        });
+        navigator.serviceWorker.addEventListener('message', event => {
+            if (event.data && event.data.type === 'sync') {
+                // Received a sync trigger from the service worker; process
+                // pending deltas quietly.
+                processPendingDeltas(true);
+            }
+        });
+    }
+    // Start periodic sync every 30 minutes to ensure queued operations
+    // eventually reach Google Sheets.  When autoSync is disabled or the
+    // device is offline, this interval does nothing.  The silent flag
+    // prevents loading overlays from interrupting the user.
+    setInterval(() => {
+        if (autoSyncEnabled && navigator.onLine) {
+            processPendingDeltas(true);
+        }
+    }, 30 * 60 * 1000);
 });
 
 /**
@@ -1306,6 +1799,13 @@ function attachSearchListeners() {
             localStorage.setItem('kasir_products', JSON.stringify(products));
             localStorage.setItem('kasir_sales', JSON.stringify(salesData));
             localStorage.setItem('kasir_debt', JSON.stringify(debtData));
+            // Persist updated data to IndexedDB for offline use.  We write
+            // products, salesData and debtData to their respective object
+            // stores.  If IndexedDB is unavailable this call does nothing.
+            saveToIndexedDB('products', products);
+            saveToIndexedDB('salesData', salesData);
+            saveToIndexedDB('debtData', debtData);
+
             // Mark data as dirty only when not importing.  During imports we don't
             // want to immediately re-export the freshly imported data.
             if (!isImporting) {
@@ -2366,41 +2866,46 @@ function removeDuplicateProducts() {
             // this call, changes to per‑item discount or quantity only update the
             // floating cart, leaving the scanner tab stale.  By refreshing the
             // scanner table here, we ensure the row totals and discount values
-            // reflect the latest cart state.
-            displayScannerProductTable();
-
-            // Update scanner tab list to reflect current cart items
+            // reflect the latest cart state.  Only call once to avoid redundant
+            // rendering.
             displayScannerProductTable();
         }
 
         function updateQuantity(id, change) {
             const item = cart.find(item => item.id === id);
-            if (item) {
-                const newQuantity = item.quantity + change;
-                if (newQuantity <= 0) {
-                    removeFromCart(id);
-                } else {
-                    const product = products.find(p => p.id === id);
-                    if (product && (product.isService || product.price === 0 || product.stock >= newQuantity)) {
-                        item.quantity = newQuantity;
-                        
-                        // Update price based on wholesale pricing
-                        if (product.wholesaleMinQty && product.wholesalePrice) {
-                            if (item.quantity >= product.wholesaleMinQty) {
-                                item.price = product.wholesalePrice;
-                                item.isWholesale = true;
-                            } else {
-                                item.price = product.price;
-                                item.isWholesale = false;
-                            }
-                        }
-                        
-                        updateCartDisplay();
-                        updateTotal();
+            if (!item) {
+                return;
+            }
+            const newQuantity = item.quantity + change;
+            if (newQuantity <= 0) {
+                // Jika kuantitas turun di bawah atau sama dengan nol, hapus item dari keranjang
+                removeFromCart(id);
+                return;
+            }
+            // Temukan produk dalam daftar master untuk referensi stok dan harga
+            const product = products.find(p => p.id === id);
+            // Tentukan apakah item ini merupakan jasa (service) atau memiliki harga nol.
+            const isServiceOrFree = item.isService || item.price === 0;
+            // Jika item adalah jasa/free, atau stok mencukupi, perbarui kuantitas
+            if (isServiceOrFree || (product && product.stock >= newQuantity)) {
+                item.quantity = newQuantity;
+                // Perbarui harga berdasarkan aturan grosir jika berlaku
+                if (product && product.wholesaleMinQty && product.wholesalePrice) {
+                    if (item.quantity >= product.wholesaleMinQty) {
+                        item.price = product.wholesalePrice;
+                        item.isWholesale = true;
                     } else {
-                        alert(`Stok tidak mencukupi! Stok tersedia: ${product.stock}`);
+                        item.price = product.price;
+                        item.isWholesale = false;
                     }
                 }
+                // Segarkan tampilan dan hitung total
+                updateCartDisplay();
+                updateTotal();
+            } else {
+                // Jika stok tidak mencukupi, gunakan stok yang tersedia (atau 0 jika tidak ada produk)
+                const available = product && typeof product.stock === 'number' ? product.stock : 0;
+                alert(`Stok tidak mencukupi! Stok tersedia: ${available}`);
             }
         }
 
@@ -2493,11 +2998,16 @@ function removeDuplicateProducts() {
         }
     }
 
-        function updateTotal() {
-            // First compute the intermediate total after per‑item discounts.  We also
-            // accumulate the original subtotal (before item discounts) for potential
-            // reporting purposes, but only the intermediate total is displayed as
-            // the subtotal to the user.
+        /**
+         * Hitung subtotal (setelah diskon per item) dan total (setelah diskon global).
+         * Fungsi ini mengembalikan objek dengan properti intermediateTotal dan total.
+         * Dengan memusatkan logika perhitungan di satu tempat, kita menghindari
+         * duplikasi kode antara updateTotal() dan updateTotalPayNotice().
+         *
+         * @returns {{intermediateTotal: number, total: number}}
+         */
+        function computeTotals() {
+            // Hitung subtotal setelah diskon per item
             let intermediateTotal = 0;
             cart.forEach(item => {
                 const itemSubtotal = item.price * item.quantity;
@@ -2507,29 +3017,35 @@ function removeDuplicateProducts() {
                 } else {
                     itemDiscount = item.discountValue || 0;
                 }
+                // Jangan biarkan diskon melebihi subtotal item
                 if (itemDiscount > itemSubtotal) itemDiscount = itemSubtotal;
                 intermediateTotal += (itemSubtotal - itemDiscount);
             });
-            // Read global discount value and type from UI
+            // Ambil nilai diskon global dari UI
             const discountInputEl = document.getElementById('discountInput');
             const discountTypeEl = document.getElementById('discountType');
             const globalValue = discountInputEl ? parseInt(discountInputEl.value) || 0 : 0;
             const globalType = discountTypeEl ? discountTypeEl.value : 'percent';
-            // Calculate global discount amount based on type, applied on the intermediate total
+            // Hitung jumlah diskon global berdasarkan tipe
             let globalAmount = 0;
             if (globalType === 'percent') {
                 globalAmount = intermediateTotal * globalValue / 100;
             } else {
                 globalAmount = globalValue;
             }
+            // Jangan biarkan diskon global melebihi subtotal
             if (globalAmount > intermediateTotal) {
                 globalAmount = intermediateTotal;
             }
             const total = intermediateTotal - globalAmount;
-            
-            document.getElementById('subtotal').textContent = formatCurrency(intermediateTotal);
-            document.getElementById('total').textContent = formatCurrency(total);
+            return { intermediateTotal, total };
+        }
 
+        function updateTotal() {
+            // Gunakan fungsi utilitas untuk menghitung subtotal dan total
+            const totals = computeTotals();
+            document.getElementById('subtotal').textContent = formatCurrency(totals.intermediateTotal);
+            document.getElementById('total').textContent = formatCurrency(totals.total);
             // Perbarui notifikasi total bayar di daftar produk
             updateTotalPayNotice();
         }
@@ -2543,40 +3059,15 @@ function removeDuplicateProducts() {
         const notice = document.getElementById('totalPayNotice');
         if (!notice) return;
         const amountSpan = document.getElementById('totalPayAmount');
-        // Hitung subtotal setelah diskon per item dan total keseluruhan seperti di updateTotal()
-        let intermediateTotal = 0;
-        cart.forEach(item => {
-            const itemSubtotal = item.price * item.quantity;
-            let itemDiscount = 0;
-            if (item.discountType === 'percent') {
-                itemDiscount = itemSubtotal * (item.discountValue || 0) / 100;
-            } else {
-                itemDiscount = item.discountValue || 0;
-            }
-            if (itemDiscount > itemSubtotal) itemDiscount = itemSubtotal;
-            intermediateTotal += (itemSubtotal - itemDiscount);
-        });
-        const discountInputEl = document.getElementById('discountInput');
-        const discountTypeEl = document.getElementById('discountType');
-        const globalValue = discountInputEl ? parseInt(discountInputEl.value) || 0 : 0;
-        const globalType = discountTypeEl ? discountTypeEl.value : 'percent';
-        let globalAmount = 0;
-        if (globalType === 'percent') {
-            globalAmount = intermediateTotal * globalValue / 100;
-        } else {
-            globalAmount = globalValue;
-        }
-        if (globalAmount > intermediateTotal) {
-            globalAmount = intermediateTotal;
-        }
-        const total = intermediateTotal - globalAmount;
+        // Gunakan computeTotals() untuk mengambil total terkini
+        const totals = computeTotals();
         if (cart.length === 0) {
             // Sembunyikan pemberitahuan bila keranjang kosong
             notice.classList.add('hidden');
         } else {
-            // Tampilkan total bayar
+            // Tampilkan total bayar setelah diskon global
             if (amountSpan) {
-                amountSpan.textContent = formatCurrency(total);
+                amountSpan.textContent = formatCurrency(totals.total);
             }
             notice.classList.remove('hidden');
         }
@@ -5412,11 +5903,28 @@ async function syncDataIncrementally(silent = false) {
             objectType: objectType,
             row: row
         };
-        await fetch(GOOGLE_APPS_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify(payload)
-        });
+        const maxAttempts = 3;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                const response = await fetch(GOOGLE_APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+                return;
+            } catch (err) {
+                if (attempt >= maxAttempts) {
+                    // On final failure, queue the update as a pending delta for later
+                    sendDeltaToGoogleSheets('update', objectType, row);
+                    throw err;
+                }
+                // Wait with exponential backoff before retrying
+                await new Promise(res => setTimeout(res, 1000 * attempt));
+            }
+        }
     }
     try {
         // Update products
@@ -5431,6 +5939,14 @@ async function syncDataIncrementally(silent = false) {
         for (const row of debtRows) {
             await updateRow('debts', row);
         }
+        // Record the last successful sync time and update UI
+        lastSyncTime = Date.now();
+        try {
+            localStorage.setItem('kasir_last_sync_time', String(lastSyncTime));
+        } catch (err) {
+            // ignore
+        }
+        updateSyncStatus();
         if (!silent) {
             alert('Data berhasil disinkronkan ke Google Sheets.');
         }
@@ -5663,6 +6179,18 @@ async function sendDeltaToGoogleSheets(action, objectType, rowOrId) {
         console.warn('URL Google Apps Script belum diatur. Perubahan tidak akan tersinkron.');
         return;
     }
+    // Validate inputs to avoid queuing undefined values
+    if (action === 'delete') {
+        if (rowOrId === undefined || rowOrId === null) {
+            console.warn('sendDeltaToGoogleSheets: invalid delete ID for', objectType);
+            return;
+        }
+    } else {
+        if (!rowOrId) {
+            console.warn('sendDeltaToGoogleSheets: invalid row for action', action, 'object', objectType);
+            return;
+        }
+    }
     // Construct a delta record
     const delta = { action: action, objectType: objectType };
     if (action === 'delete') {
@@ -5682,13 +6210,13 @@ async function sendDeltaToGoogleSheets(action, objectType, rowOrId) {
      * network connectivity is restored or on manual export).
      */
     pendingDeltas.push(delta);
-    // Persist pending deltas
-    try {
-        localStorage.setItem('kasir_pending_deltas', JSON.stringify(pendingDeltas));
-    } catch (err) {
-        // ignore
-    }
-    // Mark data as pending for sync
+    // Persist the updated queue to both localStorage and IndexedDB.  This
+    // also updates the sync status indicator.
+    persistPendingDeltas();
+    // Mark data as pending for sync and persist this flag.  We store
+    // syncPending separately from the delta queue so that a full sync
+    // (products/sales/debts) can still be triggered even when no
+    // individual deltas are present.
     syncPending = true;
     try {
         localStorage.setItem('kasir_sync_pending', 'true');
@@ -5705,12 +6233,26 @@ async function sendDeltaToGoogleSheets(action, objectType, rowOrId) {
      */
     try {
         const loggedIn = localStorage.getItem('loggedIn') === 'true';
-        if (navigator.onLine && loggedIn && !isImporting) {
+        if (navigator.onLine && loggedIn && !isImporting && autoSyncEnabled) {
             // Use silent processing (no overlay) to avoid interrupting the user
             processPendingDeltas(true);
         }
     } catch (err) {
         // If localStorage is inaccessible, skip immediate sync
+    }
+    // Register a background sync event with the service worker so that
+    // queued deltas are processed automatically even if the user closes
+    // the tab.  This requires the SyncManager API to be supported and
+    // autoSyncEnabled to be true.  Errors are ignored because not all
+    // browsers implement Background Sync.
+    if (autoSyncEnabled && 'serviceWorker' in navigator && 'SyncManager' in window) {
+        try {
+            navigator.serviceWorker.ready.then(reg => {
+                reg.sync.register('kasir-sync').catch(() => { /* ignore */ });
+            });
+        } catch (err) {
+            // ignore registration errors
+        }
     }
     return;
 }
@@ -8416,6 +8958,13 @@ window.loginUser = loginUser;
 window.logout = logout;
 // Expose manual export function so it can be called from the Analisa tab
 window.manualExport = manualExport;
+// Expose sync control functions for the UI
+window.toggleAutoSync = toggleAutoSync;
+window.showPendingChangesModal = showPendingChangesModal;
+window.closePendingChangesModal = closePendingChangesModal;
+// Expose sync history modal functions for use by HTML buttons
+window.showSyncHistoryModal = showSyncHistoryModal;
+window.closeSyncHistoryModal = closeSyncHistoryModal;
 
 // Apply the default theme (Theme 1) once the DOM is fully loaded. This
 // ensures consistent styling from the moment the page finishes rendering.
@@ -8425,4 +8974,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // This ensures the login overlay is properly toggled based on the stored login state
     // before the user interacts with the application.
     initializeLogin();
+    // Update sync status UI on initial load
+    updateSyncStatus();
 });

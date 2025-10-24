@@ -280,6 +280,10 @@
                     <button onclick="toggleThemeMenu()" class="bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press">
                         🎨 <span class="hidden sm:inline">Tema</span>
                     </button>
+                    <!-- Sync history button: visible on medium and larger screens; hidden on small screens.  Shows the number of sync events processed. -->
+                    <button id="syncHistoryButton" onclick="showSyncHistoryModal()" class="hidden sm:inline-flex bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press">
+                        🕒 <span class="hidden sm:inline">Riwayat</span> (<span id="historyCount">0</span>)
+                    </button>
                     <!-- Logout button: hidden by default and shown when the user is logged in.  The logout function is defined in script.js -->
                     <button id="logoutButton" onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press hidden">
                         🚪 <span class="hidden sm:inline">Logout</span>
@@ -317,6 +321,20 @@
                 <button onclick="switchTab('analysis')" id="analysisTab" class="flex-1 py-2 px-2 sm:py-4 sm:px-6 text-center font-semibold transition-colors text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-tr-lg sm:rounded-tr-xl whitespace-nowrap text-xs sm:text-base">
                     📊 <span class="hidden sm:inline">Analisa</span>
                 </button>
+                </div>
+            </div>
+            <!-- Sync Status and Controls -->
+            <div id="syncControlContainer" class="flex flex-wrap justify-between items-center mb-3 px-2">
+                <div id="syncStatus" class="text-xs sm:text-sm font-medium"></div>
+                <div class="flex items-center space-x-2">
+                    <button id="autoSyncToggle" onclick="toggleAutoSync()" class="px-2 py-1 text-xs sm:text-sm rounded-lg focus:outline-none"></button>
+                    <button id="pendingChangesButton" onclick="showPendingChangesModal()" class="px-2 py-1 text-xs sm:text-sm rounded-lg bg-yellow-500 text-white hidden">
+                        Perubahan (<span id="pendingCount">0</span>)
+                    </button>
+                    <!-- Mobile sync history button: shown on small screens; displays number of sync events. -->
+                    <button id="syncHistoryButtonMobile" onclick="showSyncHistoryModal()" class="sm:hidden px-2 py-1 text-xs sm:text-sm rounded-lg bg-indigo-500 text-white">
+                        🕒 <span>Riwayat</span> (<span id="historyCountMobile">0</span>)
+                    </button>
                 </div>
             </div>
         </div>
@@ -1311,6 +1329,32 @@
             <button id="loginButton" type="submit" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-lg font-semibold transition-colors active:bg-blue-700">Login</button>
         </div>
         </form>
+    </div>
+
+    <!-- Pending Changes Modal -->
+    <div id="pendingChangesModal" class="fixed inset-0 flex items-center justify-center bg-gray-800 bg-opacity-50 hidden z-50">
+        <div class="bg-white p-6 rounded-lg shadow-lg max-w-lg w-full">
+            <h3 class="text-lg font-semibold mb-4">Perubahan Tertunda</h3>
+            <div id="pendingChangesList" class="max-h-60 overflow-y-auto space-y-2 text-gray-700 text-sm border-t border-b py-2"></div>
+            <div class="flex justify-end mt-4">
+                <button onclick="closePendingChangesModal()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold">
+                    Tutup
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync History Modal: lists past synchronisation events in reverse chronological order -->
+    <div id="syncHistoryModal" class="fixed inset-0 flex items-center justify-center bg-gray-800 bg-opacity-50 hidden z-50">
+        <div class="bg-white p-6 rounded-lg shadow-lg max-w-lg w-full">
+            <h3 class="text-lg font-semibold mb-4">Riwayat Sinkronisasi</h3>
+            <div id="syncHistoryList" class="max-h-60 overflow-y-auto space-y-2 text-gray-700 text-sm border-t border-b py-2"></div>
+            <div class="flex justify-end mt-4">
+                <button onclick="closeSyncHistoryModal()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold">
+                    Tutup
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- Load external JavaScript libraries -->
