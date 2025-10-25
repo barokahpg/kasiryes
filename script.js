@@ -1795,7 +1795,13 @@ function attachSearchListeners() {
             if (savedDebt) debtData = JSON.parse(savedDebt);
         }
 
-        function saveData() {
+        // Save data to localStorage and optionally mark it as dirty for sync.
+        // When skipMarkDirty is true, the syncPending flag will not be set
+        // and no automatic incremental export will be triggered.  This is used
+        // for operations where the data is immediately synced via the delta
+        // mechanism (e.g. sending a new sale or debt payment) to avoid
+        // duplicates.
+        function saveData(skipMarkDirty = false) {
             localStorage.setItem('kasir_products', JSON.stringify(products));
             localStorage.setItem('kasir_sales', JSON.stringify(salesData));
             localStorage.setItem('kasir_debt', JSON.stringify(debtData));
@@ -1806,9 +1812,11 @@ function attachSearchListeners() {
             saveToIndexedDB('salesData', salesData);
             saveToIndexedDB('debtData', debtData);
 
-            // Mark data as dirty only when not importing.  During imports we don't
-            // want to immediately re-export the freshly imported data.
-            if (!isImporting) {
+            // Mark data as dirty only when not importing and skipMarkDirty is false.
+            // During imports we don't want to immediately re-export the freshly imported data.
+            // When skipMarkDirty is true, we suppress marking the data as dirty because
+            // the relevant changes have already been exported via the delta mechanism.
+            if (!isImporting && !skipMarkDirty) {
                 // Mark data as dirty so it can be synchronised when network is available
                 // This call will set the syncPending flag and attempt a silent sync
                 markDataAsDirty();
@@ -4263,7 +4271,8 @@ function removeDuplicateProducts() {
             });
 
             salesData.push(transaction);
-            saveData();
+            // Skip marking data as dirty because transaction and stock updates are synced via delta
+            saveData(true);
 
             // Instead of printing immediately, show a receipt preview.
             // Store a callback that will run after the user chooses to print or close the preview.
@@ -4363,7 +4372,8 @@ function removeDuplicateProducts() {
             }
 
             salesData.push(transaction);
-            saveData();
+            // Skip marking data as dirty because transaction and debt updates are synced via delta
+            saveData(true);
 
             // Instead of printing immediately, show a receipt preview.
             // Store a callback that will run after the user chooses to print or close the preview.
@@ -4564,7 +4574,8 @@ function removeDuplicateProducts() {
             }
 
             salesData.push(transaction);
-            saveData();
+            // Skip marking data as dirty because transaction and debt updates are synced via delta
+            saveData(true);
 
             // Instead of printing immediately, show a receipt preview.
             // Store a callback that will run after the user chooses to print or close the preview.
@@ -5311,7 +5322,8 @@ function removeDuplicateProducts() {
                 const debtIndex = debtData.findIndex(d => d.customerName === customerName);
                 if (debtIndex !== -1) {
                     debtData.splice(debtIndex, 1);
-                    saveData();
+                    // Skip marking data as dirty because debt deletion will be synced via delta
+                    saveData(true);
                     // Create payment record
                     const paymentRecord = {
                         id: Date.now(),
@@ -5325,7 +5337,8 @@ function removeDuplicateProducts() {
                         remainingDebt: 0
                     };
                     salesData.push(paymentRecord);
-                    saveData();
+                    // Skip marking data as dirty because the payment record is synced via delta
+                    saveData(true);
                     alert(`Hutang ${customerName} sebesar ${formatCurrency(amount)} telah dilunasi!`);
                     showReports(); // Refresh the reports modal
                     // Synchronize deletion of the debt and the new payment record to Google Sheets
