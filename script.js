@@ -1816,6 +1816,30 @@ function attachSearchListeners() {
         // mechanism (e.g. sending a new sale or debt payment) to avoid
         // duplicates.
         function saveData(skipMarkDirty = false) {
+            /*
+             * Deduplicate sales records before persisting.  Under certain race conditions
+             * (for example when a payment handler fires more than once or the same
+             * transaction is merged from multiple data sources) identical sales with
+             * the same ID can accumulate in the salesData array.  When this happens
+             * the transaction history displays duplicate rows even though the sale
+             * exists only once in Google Sheets.  To guard against this we filter
+             * salesData by the unique transaction ID, keeping only the first
+             * occurrence of each ID.  This de-duplication is performed each time
+             * data is saved so that localStorage, IndexedDB and the UI remain clean.
+             */
+            if (Array.isArray(salesData) && salesData.length > 1) {
+                const seenSaleIds = new Set();
+                salesData = salesData.filter(sale => {
+                    if (!sale || sale.id === undefined || sale.id === null) return true;
+                    const key = String(sale.id);
+                    if (seenSaleIds.has(key)) {
+                        return false;
+                    }
+                    seenSaleIds.add(key);
+                    return true;
+                });
+            }
+            // Persist arrays to localStorage
             localStorage.setItem('kasir_products', JSON.stringify(products));
             localStorage.setItem('kasir_sales', JSON.stringify(salesData));
             localStorage.setItem('kasir_debt', JSON.stringify(debtData));
