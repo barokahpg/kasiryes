@@ -3960,7 +3960,8 @@ function removeDuplicateProducts() {
                 wholesalePrice: wholesalePrice > 0 ? wholesalePrice : null
             };
 
-            saveData();
+            // Save data without marking it dirty because this edit will be synced via the delta mechanism.
+            saveData(true);
             // Refresh the product display according to the current view mode.  Using
             // displaySavedProducts() here would unconditionally render the grid
             // view, which disrupts the selected table or list view.  Instead we
@@ -3989,7 +3990,10 @@ function removeDuplicateProducts() {
             try {
                 const updatedProduct = products.find(p => p.id === editingProductId);
                 if (updatedProduct) {
-                    sendDeltaToGoogleSheets('update', 'products', productToRow(updatedProduct)).catch(err => console.error('Auto sync failed:', err));
+                    // Send update delta to Google Sheets and then immediately process the pending deltas so that the stock change reflects in Sheets
+                    sendDeltaToGoogleSheets('update', 'products', productToRow(updatedProduct))
+                        .then(() => processPendingDeltas())
+                        .catch(err => console.error('Auto sync failed:', err));
                 }
             } catch (err) {
                 console.error('Auto sync failed:', err);
