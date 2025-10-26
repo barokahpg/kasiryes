@@ -280,10 +280,12 @@
                     <button onclick="toggleThemeMenu()" class="bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press">
                         🎨 <span class="hidden sm:inline">Tema</span>
                     </button>
-                    <!-- Sync history button is hidden as per user request.  It remains in the DOM but is not displayed. -->
-                    <button id="syncHistoryButton" onclick="showSyncHistoryModal()" class="hidden sm:inline-flex bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press hidden" aria-hidden="true">
+                    <!-- Sync history button removed as per user request -->
+                    <!--
+                    <button id="syncHistoryButton" onclick="showSyncHistoryModal()" class="bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press">
                         🕒 <span class="hidden sm:inline">Riwayat</span> (<span id="historyCount">0</span>)
                     </button>
+                    -->
                     <!-- Logout button: hidden by default and shown when the user is logged in.  The logout function is defined in script.js -->
                     <button id="logoutButton" onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-semibold transition-colors text-xs sm:text-base hover-lift active-press hidden">
                         🚪 <span class="hidden sm:inline">Logout</span>
