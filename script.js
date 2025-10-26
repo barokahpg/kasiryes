@@ -614,6 +614,20 @@ async function syncPendingData(showLoader = false) {
  */
 async function processPendingDeltas(silent = false) {
     if (!pendingDeltas || pendingDeltas.length === 0) {
+        // No queued operations; clear the syncPending flag so the UI does not remain in
+        // a pending state.  Without this early reset, toggling auto sync while
+        // syncPending is true but pendingDeltas is empty would leave the status
+        // indicator stuck on "Sinkronisasi tertunda".  By clearing syncPending and
+        // updating localStorage here we correctly show the data as synchronized when
+        // there are no deltas to process.
+        syncPending = false;
+        try {
+            localStorage.setItem('kasir_sync_pending', 'false');
+        } catch (err) {
+            // ignore localStorage errors
+        }
+        // Refresh the sync status indicator
+        updateSyncStatus();
         return;
     }
     // Do nothing if offline
@@ -4274,6 +4288,28 @@ function removeDuplicateProducts() {
             // Skip marking data as dirty because transaction and stock updates are synced via delta
             saveData(true);
 
+            // Immediately sync the sale and updated product stocks to Google Sheets.  In the previous
+            // implementation these calls lived inside the pendingFinalizeCallback, which meant
+            // synchronisation only occurred after the user printed or closed the receipt preview.
+            // If the preview was dismissed unexpectedly (e.g. by closing the tab) the updates were never
+            // sent.  Moving the sync here ensures the sale and stock changes are queued for export
+            // immediately after saving.
+            try {
+                // Send the new sale record
+                sendDeltaToGoogleSheets('add', 'sales', saleToRow(transaction)).catch(err => console.error('Auto sync failed:', err));
+                // Send stock updates for each purchased product
+                transaction.items.forEach(item => {
+                    const p = products.find(prod => prod.id === item.id);
+                    if (p) {
+                        sendDeltaToGoogleSheets('update', 'products', productToRow(p)).catch(err => console.error('Auto sync failed:', err));
+                    }
+                });
+                // Process pending deltas immediately to ensure stock updates are flushed to Google Sheets
+                processPendingDeltas();
+            } catch (err) {
+                console.error('Auto sync failed:', err);
+            }
+
             // Instead of printing immediately, show a receipt preview.
             // Store a callback that will run after the user chooses to print or close the preview.
             pendingFinalizeCallback = function() {
@@ -4297,20 +4333,8 @@ function removeDuplicateProducts() {
                 }
                 displaySavedProducts(); // Refresh product display
                 displayScannerProductTable(); // Refresh scanner table
-                // Synchronize the sale and updated product stocks with Google Sheets
-                try {
-                    // Send the new sale record
-                    sendDeltaToGoogleSheets('add', 'sales', saleToRow(transaction)).catch(err => console.error('Auto sync failed:', err));
-                    // Send stock updates for each purchased product
-                    transaction.items.forEach(item => {
-                        const p = products.find(prod => prod.id === item.id);
-                        if (p) {
-                            sendDeltaToGoogleSheets('update', 'products', productToRow(p)).catch(err => console.error('Auto sync failed:', err));
-                        }
-                    });
-                } catch (err) {
-                    console.error('Auto sync failed:', err);
-                }
+                // Synchronisation has already been queued immediately after the data was saved.  Do not
+                // send deltas again here to avoid duplicate updates.
             };
             showReceiptPreview(transaction);
             return;
@@ -4375,6 +4399,32 @@ function removeDuplicateProducts() {
             // Skip marking data as dirty because transaction and debt updates are synced via delta
             saveData(true);
 
+            // Immediately sync the sale, product stock updates and updated debt record to Google Sheets.
+            // Previously, these delta operations were performed in the pendingFinalizeCallback, which only
+            // runs when the user closes or prints the receipt preview.  If the preview is closed
+            // unexpectedly, the updates might never be sent.  By sending the deltas here we ensure
+            // consistency even if the UI actions are interrupted.
+            try {
+                // Send the new sale record
+                sendDeltaToGoogleSheets('add', 'sales', saleToRow(transaction)).catch(err => console.error('Auto sync failed:', err));
+                // Send stock updates for each purchased product
+                transaction.items.forEach(item => {
+                    const p = products.find(prod => prod.id === item.id);
+                    if (p) {
+                        sendDeltaToGoogleSheets('update', 'products', productToRow(p)).catch(err => console.error('Auto sync failed:', err));
+                    }
+                });
+                // Send the updated debt record
+                const debtRecordImmediate = debtData.find(d => d.customerName === customerName);
+                if (debtRecordImmediate) {
+                    sendDeltaToGoogleSheets('update', 'debts', debtToRow(debtRecordImmediate)).catch(err => console.error('Auto sync failed:', err));
+                }
+                // Flush all queued deltas immediately so stock and debt updates are written to Google Sheets
+                processPendingDeltas();
+            } catch (err) {
+                console.error('Auto sync failed:', err);
+            }
+
             // Instead of printing immediately, show a receipt preview.
             // Store a callback that will run after the user chooses to print or close the preview.
             pendingFinalizeCallback = function() {
@@ -4393,25 +4443,8 @@ function removeDuplicateProducts() {
                 alert(`Transaksi berhasil! Hutang ${customerName}: ${formatCurrency(debt)}`);
                 displaySavedProducts(); // Refresh product display
                 displayScannerProductTable(); // Refresh scanner table
-                // Synchronize the sale, updated product stocks and debt record to Google Sheets
-                try {
-                    // Send the new sale record
-                    sendDeltaToGoogleSheets('add', 'sales', saleToRow(transaction)).catch(err => console.error('Auto sync failed:', err));
-                    // Send stock updates for each purchased product
-                    transaction.items.forEach(item => {
-                        const p = products.find(prod => prod.id === item.id);
-                        if (p) {
-                            sendDeltaToGoogleSheets('update', 'products', productToRow(p)).catch(err => console.error('Auto sync failed:', err));
-                        }
-                    });
-                    // Send the updated debt record
-                    const debtRecord = debtData.find(d => d.customerName === customerName);
-                    if (debtRecord) {
-                        sendDeltaToGoogleSheets('update', 'debts', debtToRow(debtRecord)).catch(err => console.error('Auto sync failed:', err));
-                    }
-                } catch (err) {
-                    console.error('Auto sync failed:', err);
-                }
+                // Synchronisation has already been queued immediately after the data was saved.  Do not
+                // send deltas again here to avoid duplicate updates.
             };
             showReceiptPreview(transaction);
             return;
@@ -4576,6 +4609,31 @@ function removeDuplicateProducts() {
             salesData.push(transaction);
             // Skip marking data as dirty because transaction and debt updates are synced via delta
             saveData(true);
+
+            // Immediately sync the sale, product stock updates and updated debt record to Google Sheets.
+            // Without this, the old implementation relied on the user to close the receipt preview
+            // before deltas were sent, which could result in unsynchronised stock or debt data if
+            // the preview was never finalised.  Sending deltas here ensures consistency.
+            try {
+                // Send the new sale record
+                sendDeltaToGoogleSheets('add', 'sales', saleToRow(transaction)).catch(err => console.error('Auto sync failed:', err));
+                // Send stock updates for each purchased product
+                transaction.items.forEach(item => {
+                    const p = products.find(prod => prod.id === item.id);
+                    if (p) {
+                        sendDeltaToGoogleSheets('update', 'products', productToRow(p)).catch(err => console.error('Auto sync failed:', err));
+                    }
+                });
+                // Send the updated debt record
+                const debtRecordImmediate = debtData.find(d => d.customerName === customerName);
+                if (debtRecordImmediate) {
+                    sendDeltaToGoogleSheets('update', 'debts', debtToRow(debtRecordImmediate)).catch(err => console.error('Auto sync failed:', err));
+                }
+                // Immediately process any queued deltas so they are sent without waiting for a full sync
+                processPendingDeltas();
+            } catch (err) {
+                console.error('Auto sync failed:', err);
+            }
 
             // Instead of printing immediately, show a receipt preview.
             // Store a callback that will run after the user chooses to print or close the preview.
@@ -5351,6 +5409,8 @@ function removeDuplicateProducts() {
                         sendDeltaToGoogleSheets('add', 'sales', saleToRow(paymentRecord)).catch(err => {
                             console.error('Auto sync failed:', err);
                         });
+                        // Immediately process queued deltas for the removed debt and new payment record
+                        processPendingDeltas();
                     } catch (err) {
                         console.error('Auto sync failed:', err);
                     }
@@ -5482,7 +5542,8 @@ function removeDuplicateProducts() {
                 };
                 
                 salesData.push(paymentRecord);
-                saveData();
+                // Skip marking data as dirty because the debt payment record will be synced via delta
+                saveData(true);
                 
                 // Capture values needed for synchronization before resetting modal state
                 const customerNameToSync = currentDebtCustomer;
@@ -5507,6 +5568,8 @@ function removeDuplicateProducts() {
                             sendDeltaToGoogleSheets('update', 'debts', debtToRow(debtRecordToSync)).catch(err => console.error('Auto sync failed:', err));
                         }
                     }
+                    // Immediately process pending deltas so updates are flushed to Google Sheets
+                    processPendingDeltas();
                 } catch (err) {
                     console.error('Auto sync failed:', err);
                 }
