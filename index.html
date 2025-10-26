@@ -315,8 +315,8 @@
                 <button onclick="switchTab('products')" id="productsTab" class="flex-1 py-2 px-2 sm:py-4 sm:px-6 text-center font-semibold transition-colors text-gray-600 hover:text-green-600 hover:bg-green-50 whitespace-nowrap text-xs sm:text-base">
                     📦 <span class="hidden sm:inline">Produk</span>
                 </button>
-                <!-- The Riwayat (transaction history) tab is hidden as per user request. It remains in the DOM but is not visible. -->
-                <button onclick="switchTab('history')" id="historyTab" class="flex-1 py-2 px-2 sm:py-4 sm:px-6 text-center font-semibold transition-colors text-gray-600 hover:text-green-600 hover:bg-green-50 whitespace-nowrap text-xs sm:text-base hidden" aria-hidden="true">
+                <!-- Navigation tab for transaction history (Riwayat). Visible to users. -->
+                <button onclick="switchTab('history')" id="historyTab" class="flex-1 py-2 px-2 sm:py-4 sm:px-6 text-center font-semibold transition-colors text-gray-600 hover:text-green-600 hover:bg-green-50 whitespace-nowrap text-xs sm:text-base">
                     📜 <span class="hidden sm:inline">Riwayat</span>
                 </button>
                 <button onclick="switchTab('analysis')" id="analysisTab" class="flex-1 py-2 px-2 sm:py-4 sm:px-6 text-center font-semibold transition-colors text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-tr-lg sm:rounded-tr-xl whitespace-nowrap text-xs sm:text-base">
@@ -332,8 +332,8 @@
                     <button id="pendingChangesButton" onclick="showPendingChangesModal()" class="px-2 py-1 text-xs sm:text-sm rounded-lg bg-yellow-500 text-white hidden">
                         Perubahan (<span id="pendingCount">0</span>)
                     </button>
-                    <!-- Mobile sync history button is hidden as per user request. It remains in the DOM but is not visible. -->
-                    <button id="syncHistoryButtonMobile" onclick="showSyncHistoryModal()" class="sm:hidden px-2 py-1 text-xs sm:text-sm rounded-lg bg-indigo-500 text-white hidden" aria-hidden="true">
+                    <!-- Mobile sync history button: visible on small screens; displays number of sync events. -->
+                    <button id="syncHistoryButtonMobile" onclick="showSyncHistoryModal()" class="sm:hidden px-2 py-1 text-xs sm:text-sm rounded-lg bg-indigo-500 text-white">
                         🕒 <span>Riwayat</span> (<span id="historyCountMobile">0</span>)
                     </button>
                 </div>
