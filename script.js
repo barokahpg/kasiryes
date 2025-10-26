@@ -645,7 +645,15 @@ async function processPendingDeltas(silent = false) {
         return;
     }
     if (!silent) {
+        // Show a full‑screen loading overlay when processing offline deltas in non‑silent mode
         showLoading('Menyinkronkan perubahan offline...');
+    } else {
+        // In silent mode, avoid the full overlay and instead display a subtle status message
+        const statusEl = document.getElementById('syncStatus');
+        if (statusEl) {
+            statusEl.textContent = '⏳ Menyinkronkan perubahan offline...';
+            statusEl.className = 'text-yellow-600 text-xs sm:text-sm font-semibold';
+        }
     }
     try {
         let processedCount = 0;
@@ -3765,7 +3773,8 @@ function removeDuplicateProducts() {
                         body: JSON.stringify(newProduct)
                     }).catch(err => console.error('Failed to sync new service product', err));
                 }
-                saveData();
+                // Save data without marking it dirty because this new service product will be synced via the delta mechanism.
+                saveData(true);
                 // Remove any duplicate products to keep the list clean
                 removeDuplicateProducts();
                 // Re-render products according to the current view mode instead of always switching to the grid view.
@@ -3784,9 +3793,11 @@ function removeDuplicateProducts() {
                 // Close the add product modal
                 closeAddProductModal();
                 alert(`Produk jasa "${name}" berhasil ditambahkan!`);
-                // Sync only the new service product to Google Sheets
+                // Queue and immediately sync the new service product to Google Sheets
                 try {
-                    sendDeltaToGoogleSheets('add', 'products', productToRow(newProduct)).catch(err => console.error('Auto sync failed:', err));
+                    sendDeltaToGoogleSheets('add', 'products', productToRow(newProduct))
+                        .then(() => processPendingDeltas(true))
+                        .catch(err => console.error('Auto sync failed:', err));
                 } catch (err) {
                     console.error('Auto sync failed:', err);
                 }
@@ -3832,7 +3843,8 @@ function removeDuplicateProducts() {
                     body: JSON.stringify(newProduct)
                 }).catch(err => console.error('Failed to sync new product', err));
             }
-            saveData();
+            // Save data without marking it dirty because this new product will be synced via the delta mechanism.
+            saveData(true);
             // Remove any duplicate products to keep the list tidy
             removeDuplicateProducts();
             // Re-render the product list according to the current view mode.  Using displaySavedProducts() would force
@@ -3857,9 +3869,11 @@ function removeDuplicateProducts() {
                 message += `\n🏪 Harga grosir: ${formatCurrency(wholesalePrice)} (min ${wholesaleMinQty} pcs)`;
             }
             alert(message);
-            // Sync only the new product to Google Sheets
+            // Queue and immediately sync the new product to Google Sheets
             try {
-                sendDeltaToGoogleSheets('add', 'products', productToRow(newProduct)).catch(err => console.error('Auto sync failed:', err));
+                sendDeltaToGoogleSheets('add', 'products', productToRow(newProduct))
+                    .then(() => processPendingDeltas(true))
+                    .catch(err => console.error('Auto sync failed:', err));
             } catch (err) {
                 console.error('Auto sync failed:', err);
             }
@@ -3995,7 +4009,7 @@ function removeDuplicateProducts() {
                 const updatedProductForSync = products.find(p => p.id === currentId);
                 if (updatedProductForSync) {
                     sendDeltaToGoogleSheets('update', 'products', productToRow(updatedProductForSync))
-                        .then(() => processPendingDeltas())
+                        .then(() => processPendingDeltas(true))
                         .catch(err => console.error('Auto sync failed:', err));
                 }
             } catch (err) {
