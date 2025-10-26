@@ -6315,12 +6315,23 @@ async function sendDeltaToGoogleSheets(action, objectType, rowOrId) {
      * deltas remain in the queue and will be processed when the network
      * connectivity is restored or when the user manually exports.
      */
+    // NOTE: Do not automatically flush pending deltas here.  Previously the
+    // function attempted to call processPendingDeltas() immediately whenever
+    // a delta was queued and the device was online.  In practice this could
+    // result in duplicate exports when callers also invoked
+    // processPendingDeltas() explicitly after batching multiple deltas (for
+    // example, when processing a sale and updating several product stocks).
+    // By deferring delta processing to the calling context we ensure the
+    // queue is flushed exactly once per operation and avoid race conditions
+    // that send the same delta multiple times.  Callers that wish to flush
+    // immediately should call processPendingDeltas() themselves after
+    // enqueuing all necessary deltas.
     try {
         const loggedIn = localStorage.getItem('loggedIn') === 'true';
-        if (navigator.onLine && loggedIn && !isImporting && autoSyncEnabled) {
-            // Use silent processing (no overlay) to avoid interrupting the user
-            processPendingDeltas(true);
-        }
+        // The loggedIn read is kept here to maintain parity with the previous
+        // implementation and to provide a place for potential future logic.
+        // No automatic sync is triggered at this point.
+        void loggedIn;
     } catch (err) {
         // If localStorage is inaccessible, skip immediate sync
     }
