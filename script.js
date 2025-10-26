@@ -3896,6 +3896,9 @@ function removeDuplicateProducts() {
                 return;
             }
 
+            // Preserve the current product ID before it gets reset when the modal is closed.
+            const currentId = editingProductId;
+
             const name = document.getElementById('editProductName').value.trim();
             const price = parseInt(document.getElementById('editProductPrice').value) || 0;
             const modalPrice = parseInt(document.getElementById('editProductModalPrice').value) || 0;
@@ -3962,6 +3965,18 @@ function removeDuplicateProducts() {
 
             // Save data without marking it dirty because this edit will be synced via the delta mechanism.
             saveData(true);
+
+            // Immediately queue an update delta and flush the queue before the editingProductId gets reset.
+            try {
+                const updatedProductForSync = products.find(p => p.id === currentId);
+                if (updatedProductForSync) {
+                    sendDeltaToGoogleSheets('update', 'products', productToRow(updatedProductForSync))
+                        .then(() => processPendingDeltas())
+                        .catch(err => console.error('Auto sync failed:', err));
+                }
+            } catch (err) {
+                console.error('Auto sync failed:', err);
+            }
             // Refresh the product display according to the current view mode.  Using
             // displaySavedProducts() here would unconditionally render the grid
             // view, which disrupts the selected table or list view.  Instead we
@@ -3986,18 +4001,7 @@ function removeDuplicateProducts() {
                 message += `\n🏪 Harga grosir: ${formatCurrency(wholesalePrice)} (min ${wholesaleMinQty} pcs)`;
             }
             alert(message);
-            // Sync the updated product to Google Sheets
-            try {
-                const updatedProduct = products.find(p => p.id === editingProductId);
-                if (updatedProduct) {
-                    // Send update delta to Google Sheets and then immediately process the pending deltas so that the stock change reflects in Sheets
-                    sendDeltaToGoogleSheets('update', 'products', productToRow(updatedProduct))
-                        .then(() => processPendingDeltas())
-                        .catch(err => console.error('Auto sync failed:', err));
-                }
-            } catch (err) {
-                console.error('Auto sync failed:', err);
-            }
+            // (delta sync moved above to ensure editingProductId is still valid when queuing the delta)
         }
 
         function deleteProduct() {
