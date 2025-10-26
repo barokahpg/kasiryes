@@ -4062,8 +4062,11 @@ function removeDuplicateProducts() {
                 const productIndex = products.findIndex(p => p.id === editingProductId);
                 if (productIndex !== -1) {
                     products.splice(productIndex, 1);
-                    // Save the updated list to persistent storage
-                    saveData();
+                    // Save the updated list to persistent storage without marking the data dirty,
+                    // because this deletion will be synced via the delta mechanism.  Skipping
+                    // markDataAsDirty() avoids triggering a full incremental sync that would
+                    // duplicate the deletion on the next export.
+                    saveData(true);
                     // After deleting a product, re-render the product list in the same
                     // view mode the user is currently using.  Previously this function
                     // always called displaySavedProducts() (grid view), which caused
@@ -4086,9 +4089,13 @@ function removeDuplicateProducts() {
                     // Close the edit modal (this will reset editingProductId)
                     closeEditProductModal();
                     alert(`Produk "${product.name}" berhasil dihapus!`);
-                    // Sync deletion of this product to Google Sheets using the captured ID
+                    // Sync deletion of this product to Google Sheets using the captured ID and
+                    // immediately flush the pending queue in silent mode.  This ensures that
+                    // the deletion is sent without showing the full-screen loading overlay.
                     try {
-                        sendDeltaToGoogleSheets('delete', 'products', idToDelete).catch(err => console.error('Auto sync failed:', err));
+                        sendDeltaToGoogleSheets('delete', 'products', idToDelete)
+                            .then(() => processPendingDeltas(true))
+                            .catch(err => console.error('Auto sync failed:', err));
                     } catch (err) {
                         console.error('Auto sync failed:', err);
                     }
