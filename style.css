@@ -1,6 +1,17 @@
 body {
             box-sizing: border-box;
         }
+
+/* Make the page header sticky so it remains visible when the user scrolls.
+ * Position: sticky anchors the element relative to the viewport until
+ * its containing block is scrolled offscreen. A high z-index ensures it
+ * stays above other content. This improves navigation context on mobile and
+ * desktop. */
+header {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
         
         /* Mobile optimizations */
         @media (max-width: 640px) {
@@ -9,8 +20,17 @@ body {
                 padding-right: 0.5rem;
             }
             
+            /*
+             * Increase the base font size on small screens to improve
+             * readability. A minimum of 16px is recommended for mobile
+             * devices【887358294326863†L199-L208】.  This change helps ensure that text
+             * remains legible without requiring users to zoom.
+             */
             body {
-                font-size: 14px;
+                font-size: 16px;
+                /* Increase line height on mobile for better readability. A 1.5 line height
+                 * helps users scan content without crowding【887358294326863†L199-L208】. */
+                line-height: 1.5;
             }
             
             h1 {
@@ -21,9 +41,15 @@ body {
                 padding: 0.5rem !important;
             }
             
+            /*
+             * Enlarge interactive elements on mobile to meet the WCAG
+             * recommendation of at least 44x44 px for touch targets【887358294326863†L187-L189】.
+             * Increasing the font size also aids discoverability and ease of
+             * interaction on small screens.
+             */
             button, input, select {
-                min-height: 40px;
-                font-size: 14px;
+                min-height: 44px;
+                font-size: 16px;
             }
             
             input[type="text"], input[type="number"] {
@@ -35,6 +61,94 @@ body {
                 max-width: 320px !important;
                 bottom: 0.5rem !important;
                 right: 0.5rem !important;
+            }
+
+            /* Fix the navigation to the bottom of the screen on small devices. This places
+             * the tab bar within the thumb's natural reach, improving ergonomics【887358294326863†L215-L223】.
+             * We also override any top margin or positioning to avoid conflicting rules. */
+            #navWrapper {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                width: 100%;
+                margin-top: 0 !important;
+                top: auto !important;
+                z-index: 1000;
+                background-color: rgba(255, 255, 255, 0.95);
+                box-shadow: 0 -2px 4px rgba(0,0,0,0.1);
+            }
+
+            /* Enable horizontal scrolling on the tab bar when fixed to the bottom */
+            #navContainer .flex {
+                overflow-x: auto;
+                white-space: nowrap;
+            }
+
+            /* Remove bottom margin on the nav container when it's fixed to the bottom.
+             * The original `mb-3 sm:mb-6` utility classes push the bar upward,
+             * causing unnecessary spacing and potential overlap with other elements. */
+            #navContainer {
+                margin-bottom: 0 !important;
+            }
+
+            /* Force the navigation layout to remain horizontal on small screens even
+             * when themes attempt to stack the buttons vertically. Without this
+             * override, some themes (e.g., Zen Minimal) apply `flex-direction:
+             * column` with `!important`, which causes the nav to appear as a
+             * sidebar. Adding our own `!important` ensures a row layout. */
+            #navContainer {
+                display: flex !important;
+                flex-direction: row !important;
+            }
+            #navContainer > div {
+                flex-direction: row !important;
+                overflow-x: auto !important;
+                white-space: nowrap !important;
+                border-bottom: none !important;
+            }
+            #navContainer button {
+                flex: 1 1 0 !important;
+                width: auto !important;
+                /* Use a smaller minimum height and font size for the navigation
+                 * buttons to reduce the bar’s vertical footprint. This reverts
+                 * their size closer to the original design while still being
+                 * easily tappable. */
+                min-height: 40px !important;
+                font-size: 14px !important;
+                padding-top: 0.5rem !important;
+                padding-bottom: 0.5rem !important;
+            }
+
+            /* Reset any left margin that themes apply for vertical sidebars. */
+            #contentContainer {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+            }
+
+            /* Provide bottom padding so content isn't obscured by the fixed nav bar */
+            #contentContainer {
+                /* Increase bottom padding so that long lists (like the cart) are not
+                 * obscured by the fixed bottom navigation bar. The padding value
+                 * roughly matches the nav height plus extra breathing room. */
+                padding-bottom: 6rem;
+            }
+
+            /* Allow modal content to scroll within the viewport on small screens.
+             * Without this, forms can extend beyond the viewable area when the
+             * virtual keyboard is open. This rule targets the immediate child
+             * of any modal container, which is the white card containing the form. */
+            div[id$="Modal"] > div {
+                max-height: 90vh;
+                overflow-y: auto;
+            }
+
+            /* Hide the sync status and control buttons on mobile to prevent
+             * clutter and overlapping with the bottom navigation bar. Users
+             * can still access the sync history via the dedicated mobile
+             * button within the nav bar. */
+            #syncControlContainer {
+                display: none;
             }
         }
         
@@ -391,3 +505,81 @@ textarea {
    explicit background on the cells, the table uses the same dark scheme
    as the Analisa tab, and rows are delineated by borders and hover states. */
 
+# Auto‑hide navigation on larger screens
+#
+# The user requested that the vertical taskbar (navigation tabs) auto‑hide
+# and slide out of view until hovered.  To accomplish this without
+# disrupting the existing responsive layout, we attach a class
+# (`auto-hide-nav`) to the nav wrapper in the HTML.  On screens wider
+# than 640px (i.e. tablet and desktop), the nav wrapper is fixed to
+# the left edge of the viewport and translated almost entirely off
+# screen, leaving a small 32px strip visible as a handle.  When the
+# user hovers over this strip, the nav slides into full view and
+# returns to partial opacity.  The !important modifiers ensure our
+# transforms override any theme‑specific positioning rules injected
+# dynamically by the application.  These rules do not affect the
+# horizontal tab bar used on small screens.
+
+@media (min-width: 640px) {
+    /* Collapsed state: slide the nav off the screen leaving a 32px handle.
+       The sidebar occupies the full height of the viewport (height: 100%) and
+       is anchored at the top (top: 0).  Using flexbox with a column
+       direction allows the navigation tabs (#navContainer) and sync
+       controls (#syncControlContainer) to stack vertically.  The
+       `translateX` transform moves the sidebar off screen, leaving a small
+       portion visible. */
+    #navWrapper.auto-hide-nav {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        height: 100% !important;
+        /* Slide the nav off‑screen minus 32px for the visible handle */
+        transform: translateX(calc(-100% + 32px)) !important;
+        /* Slightly reduce opacity when collapsed */
+        opacity: 0.8 !important;
+        /* Ensure the nav appears above other content */
+        z-index: 1000 !important;
+        /* Smooth transition for sliding and fading */
+        transition: transform 0.3s ease, opacity 0.3s ease;
+        /* Remove any margin applied by themes */
+        margin-top: 0 !important;
+        /* Stack children vertically */
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+    }
+
+    /*
+     * Remove extra margins on the navigation container and sync controls when
+     * the sidebar is auto-hidden.  Tailwind utility classes apply bottom
+     * margins (e.g., `mb-3 sm:mb-6`) to the nav container and sync controls
+     * which shift the group downward and defeat vertical centering.  These
+     * overrides eliminate those margins so that the flexbox centering takes
+     * effect properly.
+     */
+    #navWrapper.auto-hide-nav #navContainer {
+        /* Use auto margins to vertically center the group of navigation buttons
+           within the sidebar.  Setting both top and bottom margins to `auto`
+           causes the browser to distribute the remaining space equally above
+           and below the element.  This centers the tab buttons (Scanner,
+           Produk, Riwayat, Analisa, Keranjang) between the top and bottom
+           edges of the sidebar. */
+        margin-top: auto !important;
+        margin-bottom: auto !important;
+    }
+
+    #navWrapper.auto-hide-nav #syncControlContainer {
+        /* Ensure the sync controls stick to the bottom of the sidebar by
+           removing any automatic centering.  No top or bottom margins are
+           applied so that the element naturally aligns to the end of the
+           flex container. */
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+    }
+
+    /* Expanded state on hover: slide nav fully into view and restore opacity. */
+    #navWrapper.auto-hide-nav:hover {
+        transform: translateX(0) !important;
+        opacity: 1 !important;
+    }
+}

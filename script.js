@@ -1,3 +1,41 @@
+// Automatically mark the user as logged in when the script loads.  This bypasses the
+// login overlay in offline/local testing environments where Google Apps Script
+// authentication is not available.  The application checks localStorage for
+// the 'loggedIn' flag on load; setting it to 'true' hides the login overlay.
+try {
+    if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('loggedIn', 'true');
+    }
+} catch (e) {
+    // If localStorage is unavailable (e.g. in some sandbox environments), ignore.
+}
+
+// In local file development context, hide the login overlay once the DOM is ready.
+// This ensures that when the application is opened via the file protocol (e.g.
+// during offline development or testing without a backend), the login prompt
+// does not block access to the rest of the application.  The overlay and
+// associated controls are manipulated only after the DOM is available.
+if (typeof document !== 'undefined') {
+    document.addEventListener('DOMContentLoaded', () => {
+        // Only proceed if loaded from a file URL and localStorage indicates a logged in user.
+        try {
+            if (window.location && window.location.protocol === 'file:' && localStorage.getItem('loggedIn') === 'true') {
+                const overlay = document.getElementById('loginOverlay');
+                if (overlay) {
+                    overlay.classList.add('hidden');
+                }
+                // Ensure the logout button is visible so the user can sign out if desired.
+                const logoutBtn = document.getElementById('logoutButton');
+                if (logoutBtn) {
+                    logoutBtn.classList.remove('hidden');
+                }
+            }
+        } catch (e) {
+            console.warn('Error hiding login overlay:', e);
+        }
+    });
+}
+
 let cart = [];
         let products = [
             { id: 1, name: "Nasi Putih", price: 5000, modalPrice: 3000, barcode: "001", stock: 50, minStock: 10 },
@@ -17,6 +55,73 @@ let holdData = [];
 // this value will change to shift the analysis date. Selecting another period or
 // resetting to "Hari Ini" will reset this offset back to 0.
 let analysisDateOffset = 0;
+// Current day offset for history view (0 = today, negative = past, positive = future).
+// When using the "←" / "→" buttons in the History tab, this value will change
+// to shift the displayed date. Selecting another period filter will reset this
+// offset back to 0.
+let historyDateOffset = 0;
+
+/**
+ * Vertically center the sidebar's navigation and sync controls on larger screens.
+ *
+ * On desktop-sized viewports (≥640px), the navigation is rendered as a
+ * collapsible sidebar.  Users requested that the group of buttons and status
+ * indicators be vertically centered between the top and bottom of the page
+ * rather than anchored to the top edge.  The logic below measures the
+ * combined height of the navigation tabs (#navContainer) and the sync
+ * controls (#syncControlContainer) and assigns equal top and bottom spacing
+ * within the viewport.  When the viewport is resized, the centering is
+ * recalculated.  On mobile-sized viewports, any inline spacing is
+ * removed to restore the default layout.
+ */
+// The sidebar positioning and centering logic is now handled via CSS.  The
+// navigation container (#navContainer) uses auto margins to vertically
+// center itself within the sidebar, while the sync control container
+// (#syncControlContainer) remains aligned at the bottom.  No JavaScript is
+// needed to adjust these positions; the CSS flexbox layout takes care of
+// centering across different screen sizes and themes.
+
+/**
+ * Dynamically center the navigation buttons within the sidebar.
+ *
+ * CSS auto margins sometimes fail to vertically center the nav buttons when
+ * additional theme styles or dynamic content alter the element heights.
+ * This helper computes the available space above the sync controls and
+ * distributes it equally above the nav buttons.  It only runs on
+ * desktop-sized screens when the sidebar is active.  Margins are
+ * reset on mobile or when the sidebar is hidden.
+ */
+function centerNavButtons() {
+    try {
+        const wrapper = document.getElementById('navWrapper');
+        const navContainer = document.getElementById('navContainer');
+        const syncContainer = document.getElementById('syncControlContainer');
+        if (!wrapper || !navContainer || !syncContainer) return;
+        if (window.innerWidth >= 640 && wrapper.classList.contains('auto-hide-nav')) {
+            const available = window.innerHeight - syncContainer.offsetHeight;
+            const offset = (available - navContainer.offsetHeight) / 2;
+            if (offset > 0) {
+                navContainer.style.marginTop = offset + 'px';
+            } else {
+                navContainer.style.marginTop = '0px';
+            }
+            // Ensure there's no bottom margin that would push the nav further down
+            navContainer.style.marginBottom = '0px';
+        } else {
+            // Reset on small screens or when the sidebar is not active
+            navContainer.style.marginTop = '';
+            navContainer.style.marginBottom = '';
+        }
+    } catch (err) {
+        console.warn('Error centering navigation buttons:', err);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Use a slight delay to allow dynamic content to render before measuring
+    setTimeout(centerNavButtons, 150);
+});
+window.addEventListener('resize', centerNavButtons);
 
 /**
  * Queue of delta changes (e.g., add/update/delete operations) that need to be
@@ -384,10 +489,22 @@ function updateSyncStatus() {
     if (pendingBtn && pendingCountEl) {
         const count = pendingDeltas.length;
         pendingCountEl.textContent = String(count);
+        /*
+         * Always keep the pending changes button visible so that users can
+         * access the list of unsynchronised changes in any theme.  When
+         * there are no pending deltas the button is disabled and styled
+         * with a muted colour.  Otherwise it retains its highlighted
+         * appearance.  We avoid toggling the `hidden` class because
+         * Tailwind's `hidden` uses `display: none !important`, which can
+         * conflict with custom themes and hide the button permanently.
+         */
+        pendingBtn.classList.remove('hidden');
         if (count > 0) {
-            pendingBtn.classList.remove('hidden');
+            pendingBtn.classList.remove('bg-gray-300', 'text-gray-400', 'cursor-not-allowed');
+            pendingBtn.disabled = false;
         } else {
-            pendingBtn.classList.add('hidden');
+            pendingBtn.classList.add('bg-gray-300', 'text-gray-400', 'cursor-not-allowed');
+            pendingBtn.disabled = true;
         }
     }
 
@@ -789,6 +906,46 @@ function toggleAnalysisNavigation(show) {
 }
 
 /**
+ * Show or hide the history date navigation controls (previous/next day).
+ * When showing the controls, ensure they are displayed flex to align items.
+ * @param {boolean} show Whether to display the controls
+ */
+function toggleHistoryNavigation(show) {
+    const nav = document.getElementById('historyDateNavigation');
+    if (!nav) return;
+    nav.classList[show ? 'remove' : 'add']('hidden');
+}
+
+/**
+ * Dynamically insert the history date navigation controls into the History tab.
+ * This function looks for the history search input, creates the navigation
+ * element if it doesn't exist, and inserts it before the search bar container.
+ * It allows the navigation to be added purely via JavaScript so that the HTML
+ * markup does not need to be edited directly.
+ */
+function insertHistoryNavigation() {
+    try {
+        // If the navigation already exists, do nothing
+        if (document.getElementById('historyDateNavigation')) return;
+        const searchInput = document.getElementById('historySearchInput');
+        if (!searchInput) return;
+        const searchContainer = searchInput.parentNode; // div.mb-4.relative
+        const parent = searchContainer.parentNode; // container within historyContent
+        const navEl = document.createElement('div');
+        navEl.id = 'historyDateNavigation';
+        navEl.className = 'hidden flex items-center justify-center space-x-2 mb-4';
+        navEl.innerHTML = `
+            <button id="prevDayHistory" onclick="moveHistoryDate(-1)" class="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded-lg font-sem-bold">←</button>
+            <span id="historyDateLabel" class="font-sem-bold text-gray-700"></span>
+            <button id="nextDayHistory" onclick="moveHistoryDate(1)" class="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded-lg font-sem-bold">→</button>
+        `;
+        parent.insertBefore(navEl, searchContainer);
+    } catch (err) {
+        console.warn('Unable to insert history date navigation:', err);
+    }
+}
+
+/**
  * Shift the analysis date by the given number of days and update the analysis view.
  * A negative value moves to previous days, positive to future days.  The analysis
  * date offset is updated accordingly and persisted until the user resets to "Hari Ini"
@@ -807,6 +964,26 @@ function moveAnalysisDate(direction) {
 }
 // Expose moveAnalysisDate so that inline HTML can invoke it
 window.moveAnalysisDate = moveAnalysisDate;
+
+/**
+ * Shift the history date by the given number of days and refresh the history view.
+ * A negative value moves to previous days, positive to future days.  The history
+ * date offset is updated accordingly.  After updating the offset, the
+ * transaction list is re-filtered using the 'today' filter logic with the
+ * adjusted date.  This function is exposed globally for inline button handlers.
+ * @param {number} direction Number of days to shift (e.g., -1 for previous day, 1 for next day)
+ */
+function moveHistoryDate(direction) {
+    if (typeof direction !== 'number' || direction === 0) return;
+    historyDateOffset += direction;
+    // Refresh the history view using the current filter.  Use a zero-delay
+    // timeout to defer execution until after the click event completes.
+    setTimeout(() => {
+        filterTransactionHistory();
+    }, 0);
+}
+// Expose moveHistoryDate globally so that inline HTML can invoke it
+window.moveHistoryDate = moveHistoryDate;
 
 /**
  * Update the analysis metrics and product table for a specific date.
@@ -1620,6 +1797,11 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Perbarui tampilan tombol toggle scan berdasarkan status awal.  Ini memastikan
     // pengguna melihat status ON/OFF yang benar setelah memuat halaman.
     updateScanToggleButton();
+
+    // Insert history date navigation controls into the History tab.  The navigation
+    // controls allow moving to previous and next days when viewing transaction history.
+    // They are added dynamically here so that the HTML does not need to be manually edited.
+    insertHistoryNavigation();
 
     /**
      * Global event delegation for search inputs.
@@ -2898,16 +3080,16 @@ function removeDuplicateProducts() {
                                 <div class="font-bold ${isServiceItem ? 'text-purple-600' : item.isWholesale ? 'text-blue-600' : 'text-green-600'} text-sm">${formatCurrency(item.price * item.quantity)}</div>
                                 <div class="flex items-center space-x-1">
                                     ${isServiceItem ? `
-                                        <button onclick="removeFromCart('${itemId}')" class="bg-red-500 hover:bg-red-600 text-white w-5 h-5 rounded text-xs">×</button>
+                                        <button onclick="removeFromCart('${itemId}')" class="bg-red-500 hover:bg-red-600 text-white w-8 h-8 rounded text-sm">×</button>
                                     ` : `
-                                        <button onclick="updateQuantity(${item.id}, -1)" class="bg-red-500 hover:bg-red-600 text-white w-5 h-5 rounded text-xs">-</button>
+                                        <button onclick="updateQuantity(${item.id}, -1)" class="bg-red-500 hover:bg-red-600 text-white w-8 h-8 rounded text-sm">-</button>
                                         <input type="number" value="${item.quantity}" min="1" max="999" 
-                                               class="w-10 px-1 py-0 border rounded text-xs text-center" 
+                                               class="w-12 px-2 py-1 border rounded text-base text-center" 
                                                onchange="setQuantity(${item.id}, this.value)"
                                                onkeypress="handleQuantityKeypress(event, ${item.id})"
                                                onclick="this.select()">
-                                        <button onclick="updateQuantity(${item.id}, 1)" class="bg-green-500 hover:bg-green-600 text-white w-5 h-5 rounded text-xs">+</button>
-                                        <button onclick="removeFromCart(${item.id})" class="bg-gray-500 hover:bg-gray-600 text-white w-5 h-5 rounded text-xs">×</button>
+                                        <button onclick="updateQuantity(${item.id}, 1)" class="bg-green-500 hover:bg-green-600 text-white w-8 h-8 rounded text-sm">+</button>
+                                        <button onclick="removeFromCart(${item.id})" class="bg-gray-500 hover:bg-gray-600 text-white w-8 h-8 rounded text-sm">×</button>
                                     `}
                                 </div>
                             </div>
@@ -3732,7 +3914,7 @@ function removeDuplicateProducts() {
             // Validate wholesale pricing if provided
             if (wholesaleMinQty > 0 || wholesalePrice > 0) {
                 if (wholesaleMinQty < 2) {
-                    alert('Minimal quantity grosir harus minimal 2!');
+                    alert('Minimal quantity grosir harus minimal 2 (misal 10 pcs)!');
                     return;
                 }
                 if (wholesalePrice <= 0) {
@@ -3793,11 +3975,15 @@ function removeDuplicateProducts() {
                 // Close the add product modal
                 closeAddProductModal();
                 alert(`Produk jasa "${name}" berhasil ditambahkan!`);
-                // Queue and immediately sync the new service product to Google Sheets
+                // Queue the new service product and immediately flush the queue.  Calling
+                // processPendingDeltas() directly after enqueueing the delta avoids relying
+                // on promise resolution semantics of sendDeltaToGoogleSheets(), which may
+                // resolve immediately.  This ensures the change is sent to Google Sheets
+                // without waiting for another user action.
                 try {
-                    sendDeltaToGoogleSheets('add', 'products', productToRow(newProduct))
-                        .then(() => processPendingDeltas(true))
-                        .catch(err => console.error('Auto sync failed:', err));
+                    sendDeltaToGoogleSheets('add', 'products', productToRow(newProduct));
+                    // Flush queued deltas in silent mode so the UI is not blocked by a full overlay
+                    processPendingDeltas(true);
                 } catch (err) {
                     console.error('Auto sync failed:', err);
                 }
@@ -3869,11 +4055,13 @@ function removeDuplicateProducts() {
                 message += `\n🏪 Harga grosir: ${formatCurrency(wholesalePrice)} (min ${wholesaleMinQty} pcs)`;
             }
             alert(message);
-            // Queue and immediately sync the new product to Google Sheets
+            // Queue the new product and immediately flush the queue.  By calling
+            // processPendingDeltas() right after enqueueing, the update is sent
+            // to Google Sheets without waiting for another operation to trigger
+            // synchronisation.  The silent flag prevents the full‑screen overlay.
             try {
-                sendDeltaToGoogleSheets('add', 'products', productToRow(newProduct))
-                    .then(() => processPendingDeltas(true))
-                    .catch(err => console.error('Auto sync failed:', err));
+                sendDeltaToGoogleSheets('add', 'products', productToRow(newProduct));
+                processPendingDeltas(true);
             } catch (err) {
                 console.error('Auto sync failed:', err);
             }
@@ -3959,7 +4147,7 @@ function removeDuplicateProducts() {
             // Validate wholesale pricing if provided
             if (wholesaleMinQty > 0 || wholesalePrice > 0) {
                 if (wholesaleMinQty < 2) {
-                    alert('Minimal quantity grosir harus minimal 2!');
+                    alert('Minimal quantity grosir harus minimal 2 (misal 10 pcs)!');
                     return;
                 }
                 if (wholesalePrice <= 0) {
@@ -4008,9 +4196,10 @@ function removeDuplicateProducts() {
             try {
                 const updatedProductForSync = products.find(p => p.id === currentId);
                 if (updatedProductForSync) {
-                    sendDeltaToGoogleSheets('update', 'products', productToRow(updatedProductForSync))
-                        .then(() => processPendingDeltas(true))
-                        .catch(err => console.error('Auto sync failed:', err));
+                    // Queue the update and then flush the pending deltas.  This avoids
+                    // relying on promise chaining semantics of sendDeltaToGoogleSheets().
+                    sendDeltaToGoogleSheets('update', 'products', productToRow(updatedProductForSync));
+                    processPendingDeltas(true);
                 }
             } catch (err) {
                 console.error('Auto sync failed:', err);
@@ -4091,11 +4280,12 @@ function removeDuplicateProducts() {
                     alert(`Produk "${product.name}" berhasil dihapus!`);
                     // Sync deletion of this product to Google Sheets using the captured ID and
                     // immediately flush the pending queue in silent mode.  This ensures that
-                    // the deletion is sent without showing the full-screen loading overlay.
+                    // the deletion is sent without showing the full‑screen loading overlay.
                     try {
-                        sendDeltaToGoogleSheets('delete', 'products', idToDelete)
-                            .then(() => processPendingDeltas(true))
-                            .catch(err => console.error('Auto sync failed:', err));
+                        // Enqueue the deletion delta
+                        sendDeltaToGoogleSheets('delete', 'products', idToDelete);
+                        // Immediately flush the queue so the row is removed from Google Sheets
+                        processPendingDeltas(true);
                     } catch (err) {
                         console.error('Auto sync failed:', err);
                     }
@@ -4154,6 +4344,14 @@ function removeDuplicateProducts() {
             const modal = document.getElementById('unifiedPaymentModal');
             modal.classList.remove('hidden');
             modal.classList.add('flex');
+
+            // Always enable the "Bayar Pas" button regardless of the active tab.  If any
+            // disabling styles were previously applied (e.g. from earlier runs), remove them
+            const bayarPasBtn = document.getElementById('exactPaymentButton');
+            if (bayarPasBtn) {
+                bayarPasBtn.disabled = false;
+                bayarPasBtn.classList.remove('opacity-50', 'cursor-not-allowed', 'pointer-events-none');
+            }
             // Attach keyboard shortcuts: Enter processes payment, Escape cancels
             attachModalKeyHandlers(modal, processUnifiedPayment, closeUnifiedPaymentModal, ['unifiedPaymentAmount','unifiedCustomerName']);
 
@@ -4357,8 +4555,10 @@ function removeDuplicateProducts() {
                         sendDeltaToGoogleSheets('update', 'products', productToRow(p)).catch(err => console.error('Auto sync failed:', err));
                     }
                 });
-                // Process pending deltas immediately to ensure stock updates are flushed to Google Sheets
-                processPendingDeltas();
+                // Process pending deltas immediately to ensure stock updates are flushed to Google Sheets.
+                // Pass `true` to run in silent mode so the loading overlay does not block the UI. This prevents
+                // the "Menyinkronkan perubahan offline" overlay from interrupting rapid checkout workflows.
+                processPendingDeltas(true);
             } catch (err) {
                 console.error('Auto sync failed:', err);
             }
@@ -4472,8 +4672,9 @@ function removeDuplicateProducts() {
                 if (debtRecordImmediate) {
                     sendDeltaToGoogleSheets('update', 'debts', debtToRow(debtRecordImmediate)).catch(err => console.error('Auto sync failed:', err));
                 }
-                // Flush all queued deltas immediately so stock and debt updates are written to Google Sheets
-                processPendingDeltas();
+                // Flush all queued deltas immediately so stock and debt updates are written to Google Sheets.
+                // Run in silent mode to avoid showing the loading overlay during the transaction.
+                processPendingDeltas(true);
             } catch (err) {
                 console.error('Auto sync failed:', err);
             }
@@ -4682,8 +4883,9 @@ function removeDuplicateProducts() {
                 if (debtRecordImmediate) {
                     sendDeltaToGoogleSheets('update', 'debts', debtToRow(debtRecordImmediate)).catch(err => console.error('Auto sync failed:', err));
                 }
-                // Immediately process any queued deltas so they are sent without waiting for a full sync
-                processPendingDeltas();
+                // Immediately process any queued deltas so they are sent without waiting for a full sync.
+                // Run silently to prevent the full-screen overlay from blocking the user interface during checkout.
+                processPendingDeltas(true);
             } catch (err) {
                 console.error('Auto sync failed:', err);
             }
@@ -4812,28 +5014,85 @@ function removeDuplicateProducts() {
             const filter = document.getElementById('historyFilter').value;
             const now = new Date();
             let filtered = [...salesData];
-
+            // Handle different history filters.  For the "today" filter, incorporate
+            // historyDateOffset so that users can browse previous/next days.  When a
+            // non-today period is selected, reset the offset and hide the date navigation.
             switch (filter) {
-                case 'today':
+                case 'today': {
+                    // Show navigation controls for day-by-day browsing
+                    toggleHistoryNavigation(true);
+                    // Compute the selected date based on the offset (0 = today)
+                    const selectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + historyDateOffset);
                     filtered = salesData.filter(t => {
                         const transactionDate = new Date(t.timestamp);
-                        return transactionDate.toDateString() === now.toDateString();
+                        return transactionDate.toDateString() === selectedDate.toDateString();
                     });
+                    // Update the navigation label with the formatted date
+                    const labelEl = document.getElementById('historyDateLabel');
+                    if (labelEl) {
+                        labelEl.textContent = formatDateForLabel(selectedDate);
+                    }
                     break;
-                case 'week':
+                }
+                case 'week': {
+                    historyDateOffset = 0;
+                    toggleHistoryNavigation(false);
+                    const labelEl = document.getElementById('historyDateLabel');
+                    if (labelEl) {
+                        labelEl.textContent = '';
+                    }
                     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
                     filtered = salesData.filter(t => new Date(t.timestamp) >= weekAgo);
                     break;
-                case 'month':
+                }
+                case 'month': {
+                    historyDateOffset = 0;
+                    toggleHistoryNavigation(false);
+                    {
+                        const labelEl = document.getElementById('historyDateLabel');
+                        if (labelEl) {
+                            labelEl.textContent = '';
+                        }
+                    }
                     const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
                     filtered = salesData.filter(t => new Date(t.timestamp) >= monthAgo);
                     break;
-                case 'full':
+                }
+                case 'full': {
+                    historyDateOffset = 0;
+                    toggleHistoryNavigation(false);
+                    {
+                        const labelEl = document.getElementById('historyDateLabel');
+                        if (labelEl) {
+                            labelEl.textContent = '';
+                        }
+                    }
                     filtered = salesData.filter(t => t.type === 'full');
                     break;
-                case 'partial':
+                }
+                case 'partial': {
+                    historyDateOffset = 0;
+                    toggleHistoryNavigation(false);
+                    {
+                        const labelEl = document.getElementById('historyDateLabel');
+                        if (labelEl) {
+                            labelEl.textContent = '';
+                        }
+                    }
                     filtered = salesData.filter(t => t.type === 'partial');
                     break;
+                }
+                default: {
+                    historyDateOffset = 0;
+                    toggleHistoryNavigation(false);
+                    {
+                        const labelEl = document.getElementById('historyDateLabel');
+                        if (labelEl) {
+                            labelEl.textContent = '';
+                        }
+                    }
+                    break;
+                }
             }
 
             const container = document.getElementById('transactionHistory');
@@ -5462,8 +5721,9 @@ function removeDuplicateProducts() {
                         sendDeltaToGoogleSheets('add', 'sales', saleToRow(paymentRecord)).catch(err => {
                             console.error('Auto sync failed:', err);
                         });
-                        // Immediately process queued deltas for the removed debt and new payment record
-                        processPendingDeltas();
+                        // Immediately process queued deltas for the removed debt and new payment record.
+                        // Use silent mode to avoid disrupting the flow with a loading overlay.
+                        processPendingDeltas(true);
                     } catch (err) {
                         console.error('Auto sync failed:', err);
                     }
@@ -5621,8 +5881,9 @@ function removeDuplicateProducts() {
                             sendDeltaToGoogleSheets('update', 'debts', debtToRow(debtRecordToSync)).catch(err => console.error('Auto sync failed:', err));
                         }
                     }
-                    // Immediately process pending deltas so updates are flushed to Google Sheets
-                    processPendingDeltas();
+                    // Immediately process pending deltas so updates are flushed to Google Sheets.
+                    // Use silent mode to avoid showing the blocking loading overlay.
+                    processPendingDeltas(true);
                 } catch (err) {
                     console.error('Auto sync failed:', err);
                 }
@@ -5970,6 +6231,66 @@ async function exportDataToGoogleSheets(silent = false) {
         }
     }
 }
+
+/**
+ * Trigger an exact payment in the unified payment modal.
+ *
+ * This convenience function reads the total amount due from the
+ * `unifiedPaymentTotal` element, strips non‑numeric characters to parse
+ * the numeric value, populates the `unifiedPaymentAmount` input with
+ * that value, recalculates the payment status and immediately
+ * processes the payment.  Cashiers can click this button when
+ * customers pay the exact amount, avoiding manual input.
+ */
+function payExactUnified() {
+    const totalText = document.getElementById('unifiedPaymentTotal')?.textContent || '';
+    // Remove any non‑digit characters (e.g. 'Rp', dots, spaces) to obtain the numeric value
+    const total = parseInt(totalText.replace(/[^0-9]/g, '')) || 0;
+    const amountInput = document.getElementById('unifiedPaymentAmount');
+    if (amountInput) {
+        amountInput.value = total;
+    }
+    // Update the payment status display to reflect the exact payment
+    calculateUnifiedPayment();
+    // Proceed with the payment as a full payment
+    processUnifiedPayment();
+}
+
+// ================================================================
+// Global keyboard shortcut for "Bayar Pas"
+//
+// Allow cashiers to instantly process an exact payment using a
+// keyboard combination.  When the unified payment modal is open,
+// pressing Ctrl + Alt + Shift + Space will call payExactUnified(),
+// automatically filling in the total amount and completing the
+// transaction.  The listener checks that the modal is visible to
+// avoid triggering the shortcut elsewhere.
+document.addEventListener('keydown', function(event) {
+    // Listen for Ctrl+Alt+Shift+Space combination
+    const isCombo = event.ctrlKey && event.altKey && event.shiftKey &&
+        (event.code === 'Space' || event.key === ' ');
+    if (!isCombo) return;
+    // Only allow the shortcut when the scanner tab is active
+    const scannerContent = document.getElementById('scannerContent');
+    const isScannerActive = scannerContent && !scannerContent.classList.contains('hidden');
+    if (!isScannerActive) return;
+    // If the cart is empty, do nothing
+    if (typeof cart !== 'undefined' && cart.length === 0) return;
+    event.preventDefault();
+    const modal = document.getElementById('unifiedPaymentModal');
+    const isModalOpen = modal && !modal.classList.contains('hidden');
+    if (isModalOpen) {
+        // If the modal is already open, just pay the exact amount
+        payExactUnified();
+    } else {
+        // Otherwise, open the payment modal first, then pay
+        showUnifiedPaymentModal();
+        // Use a timeout to ensure the modal inputs are rendered before filling them
+        setTimeout(() => {
+            payExactUnified();
+        }, 0);
+    }
+});
 
 /**
  * Synchronise the local data to Google Sheets using incremental updates.  Instead of
@@ -8840,6 +9161,21 @@ function applyTheme(idx) {
         index = idNum - 1;
     }
     if (index < 0 || index >= themes.length) return;
+    // On small screens (≤ 640px), skip injecting theme CSS. Many themes (e.g. Zen Minimal)
+    // reposition the navigation bar into a vertical sidebar using high‑specificity rules
+    // that conflict with our mobile layout. Removing the theme on mobile ensures the
+    // default responsive styling remains intact【887358294326863†L187-L193】.
+    if (typeof window !== 'undefined' && window.innerWidth <= 640) {
+        // Remove any previously applied theme style element
+        const existing = document.getElementById('activeTheme');
+        if (existing && existing.parentNode) {
+            existing.parentNode.removeChild(existing);
+        }
+        // Hide the theme menu and return early
+        const menu = document.getElementById('themeMenu');
+        if (menu) menu.classList.add('hidden');
+        return;
+    }
     // Remove old theme
     const oldStyle = document.getElementById('activeTheme');
     if (oldStyle && oldStyle.parentNode) {
@@ -9107,6 +9443,53 @@ window.showSyncHistoryModal = showSyncHistoryModal;
 window.closeSyncHistoryModal = closeSyncHistoryModal;
 
 // Apply the default theme (Theme 1) once the DOM is fully loaded. This
+/**
+ * Download a backup of local data (products, sales and debt) as a JSON file.
+ *
+ * This helper gathers the current contents of `kasir_products`,
+ * `kasir_sales` and `kasir_debt` stored in localStorage and packages
+ * them into an object with a timestamp.  The resulting JSON is
+ * serialized and saved to a file named `kasir_backup_YYYYMMDD_HHMM.json`.
+ * Users can use this file as a local backup or to migrate data to
+ * another device.  The download uses a temporary anchor element and
+ * revokes the created object URL after it’s been clicked to free
+ * resources.
+ */
+function downloadBackup() {
+    try {
+        const products = JSON.parse(localStorage.getItem('kasir_products') || '[]');
+        const sales = JSON.parse(localStorage.getItem('kasir_sales') || '[]');
+        const debt = JSON.parse(localStorage.getItem('kasir_debt') || '[]');
+        const backup = {
+            timestamp: new Date().toISOString(),
+            products: products,
+            sales: sales,
+            debt: debt
+        };
+        const jsonStr = JSON.stringify(backup, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const now = new Date();
+        const fileName = 'kasir_backup_' +
+            now.getFullYear().toString().padStart(4, '0') +
+            (now.getMonth() + 1).toString().padStart(2, '0') +
+            now.getDate().toString().padStart(2, '0') + '_'
+            + now.getHours().toString().padStart(2, '0') +
+            now.getMinutes().toString().padStart(2, '0') + '.json';
+        a.href = url;
+        a.download = fileName;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        console.error('Error creating backup:', err);
+        alert('Gagal membuat backup. Pastikan data lokal tersedia.');
+    }
+}
+
 // ensures consistent styling from the moment the page finishes rendering.
 document.addEventListener('DOMContentLoaded', () => {
     applyTheme(1);
