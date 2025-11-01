@@ -2,6 +2,48 @@ body {
             box-sizing: border-box;
         }
 
+/* Utility helpers for theme menu: show/hide content based on viewport */
+.mobile-only { display: none; }
+.desktop-only { display: block; }
+@media (max-width: 640px) {
+    .mobile-only { display: block !important; }
+    .desktop-only { display: none !important; }
+}
+
+/* Ensure cart shows at least two items without forcing large scrolling on mobile */
+@media (max-width: 640px) {
+    /* Make the scanner product table a scrollable block with compact rows */
+    #scannerProductTable {
+        display: block !important;
+        /* Expand cart to use available viewport space but leave room for header, inputs and bottom nav.
+           This makes the cart much taller on phones so it reaches closer to the bottom nav/buttons. */
+        max-height: calc(100vh - 12rem - env(safe-area-inset-bottom, 0.5rem)) !important;
+        overflow-y: auto !important;
+        padding-right: 4px !important; /* allow space for scrollbar */
+    }
+    /* Compact each row/card to reduce height */
+    #scannerProductTable tr {
+        margin-bottom: 0.35rem !important;
+        padding: 0.25rem !important;
+    }
+    #scannerProductTable td {
+        padding: 0.25rem 0.4rem !important;
+        font-size: 12px !important;
+        line-height: 1.1 !important;
+    }
+    /* Reduce quantity/input sizes inside the table for compactness */
+    #scannerProductTable input[type="number"],
+    #scannerProductTable input[type="text"] {
+        font-size: 12px !important;
+        padding: 0.2rem !important;
+        width: 3.8rem !important;
+    }
+    /* Slightly lift the cart section so it's closer to the Total Bayar button */
+    #scannerContent .mt-6 {
+        margin-top: 0.15rem !important;
+    }
+}
+
 /* Make the page header sticky so it remains visible when the user scrolls.
  * Position: sticky anchors the element relative to the viewport until
  * its containing block is scrolled offscreen. A high z-index ensures it
@@ -12,12 +54,32 @@ header {
     top: 0;
     z-index: 1000;
 }
+
+/* Keep the Analysis filter controls on top and clickable when the product
+   analysis table is updated. This prevents other elements from overlapping
+   the buttons and intercepting clicks on narrow viewports. */
+#analysisFilterContainer {
+    position: sticky;
+    top: calc(var(--header-offset, 56px) + 0.5rem);
+    z-index: 1300;
+    background: inherit; /* preserve card background from HTML */
+}
+
+/* NOTE: #savedProducts sticky behaviour is applied only on mobile via
+    the media query below so it doesn't affect desktop layouts. */
         
         /* Mobile optimizations */
         @media (max-width: 640px) {
             .container {
                 padding-left: 0.5rem;
                 padding-right: 0.5rem;
+            }
+            /* Make the saved products container stick below the header while scrolling on mobile only. */
+            #savedProducts {
+                position: sticky;
+                top: var(--header-offset, 56px);
+                z-index: 900;
+                background-clip: padding-box;
             }
             
             /*
@@ -150,7 +212,359 @@ header {
             #syncControlContainer {
                 display: none;
             }
+            /* Simplify navigation on mobile: show icons only, larger touch targets,
+               hide floating duplicates (cart/hold) and improve spacing for thumb reach. */
+            /* Hide text labels (second span inside each nav button) */
+            #navContainer button span + span {
+                display: none !important;
+            }
+            /* Make nav buttons bigger and evenly spaced */
+            #navContainer .flex {
+                justify-content: space-around;
+                align-items: center;
+            }
+            #navContainer button {
+                min-height: 56px !important;
+                padding-top: 0.75rem !important;
+                padding-bottom: 0.75rem !important;
+            }
+            /* Make the icon circle larger for easier tap */
+            #navContainer button span:first-child {
+                width: 44px !important;
+                height: 44px !important;
+                font-size: 20px !important;
+                line-height: 44px !important;
+            }
+            /* Hide floating cart/hold buttons on mobile because nav contains cart */
+            #cartToggle, #holdToggle {
+                display: none !important;
+            }
+            /* Ensure content has extra bottom padding to avoid overlap with nav and safe-area */
+            #contentContainer {
+                padding-bottom: calc(7rem + env(safe-area-inset-bottom)) !important;
+            }
+            /* Add safe area padding to nav wrapper */
+            #navWrapper {
+                padding-bottom: env(safe-area-inset-bottom);
+            }
+            /* Move nav to bottom center and make it compact and touch-friendly */
+            /* Center the nav container and give it a max width so it doesn't stretch too wide */
+            #navWrapper {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                display: flex;
+                justify-content: center;
+                padding: 0.5rem;
+                background: transparent; /* allow navContainer background to show */
+                z-index: 1000;
+            }
+
+            /* Make the white nav pill centered and constrained */
+            #navContainer {
+                width: calc(100% - 1rem);
+                max-width: 720px;
+                border-radius: 12px;
+                padding: 0.25rem 0.4rem;
+                /* darker shadow so it reads on a dark theme */
+                box-shadow: 0 -2px 8px rgba(0,0,0,0.6);
+                display: flex !important;
+                justify-content: center;
+                align-items: center;
+                /* Use a dark semi-transparent background so the nav matches the
+                   dark theme in your screenshot while still appearing slightly
+                   elevated above the page content. */
+                background-color: rgba(7, 12, 20, 0.85);
+                border: 1px solid rgba(255,255,255,0.03);
+                color: inherit;
+            }
+
+            /* Ensure the inner flex row spans the container and distributes buttons evenly */
+            #navContainer .flex {
+                width: 100%;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 0.25rem;
+            }
+
+            /* Buttons: evenly distributed, allow wrapping if needed on very small screens */
+            #navContainer button {
+                flex: 1 1 0;
+                min-width: 0;
+                margin: 0 0.15rem;
+                text-align: center;
+                background: transparent;
+                border: none;
+                padding: 0.45rem 0.35rem !important;
+                border-radius: 8px;
+            }
+
+            /* Icon circle size and spacing */
+            #navContainer button span:first-child {
+                width: 40px !important;
+                height: 40px !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                font-size: 18px !important;
+                line-height: 1 !important;
+            }
+
+            /* Hide text labels to keep the bar compact. If you want the Cart label visible,
+               we can target that button specifically instead of hiding all labels. */
+            #navContainer button span + span {
+                display: none !important;
+            }
+
+            /* Slightly increase overall bottom padding so nothing gets obscured */
+            #contentContainer {
+                padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)) !important;
+            }
+
+            /* -------------------------
+               Mobile dark theme overrides
+               Keep these changes strictly inside the mobile media query so
+               desktop is not affected. These rules convert the light UI
+               surfaces (white cards, inputs, header) to dark variants to
+               match the original dark theme in your screenshot.
+               ------------------------- */
+            body {
+                background: linear-gradient(180deg, #061228 0%, #071826 60%) !important;
+                color: #E6EEF3 !important;
+            }
+
+            /* Dark header */
+            header {
+                background: linear-gradient(90deg, #071426, #0b2433) !important;
+                border-bottom-color: rgba(34,197,94,0.08) !important;
+                color: #E6EEF3 !important;
+            }
+
+            /* Make "Scanner Barcode" label match Keranjang heading size on mobile */
+            #scannerContent h2 > span.text-sm,
+            #scannerContent h2 .text-sm {
+                font-size: 1.125rem !important; /* match text-lg (~18px) */
+                font-weight: 600 !important;
+                line-height: 1.2 !important;
+                color: inherit !important;
+            }
+
+            /* Convert white cards (dialogs, panels) to dark cards */
+            /* Force common light surface classes to dark on mobile. Use more
+               specific selectors and !important to override inline or theme
+               styles that may come later. */
+            .bg-white,
+            .bg-white.rounded-lg,
+            .bg-white.rounded-xl,
+            .bg-gray-50,
+            .shadow-lg,
+            .rounded-lg,
+            .rounded-xl {
+                background-color: rgba(8,14,22,0.96) !important;
+                border-color: rgba(255,255,255,0.03) !important;
+                color: #E6EEF3 !important;
+                box-shadow: 0 6px 18px rgba(0,0,0,0.6) !important;
+            }
+
+            /* Some inner panels use nested containers; ensure their direct
+               child backgrounds are also forced dark. */
+            .bg-white > *,
+            .bg-gray-50 > * {
+                background: transparent !important;
+                color: inherit !important;
+            }
+
+            /* Inputs: darker background with light text */
+            input[type="text"], input[type="number"], textarea, select {
+                background-color: rgba(255,255,255,0.03) !important;
+                color: #E6EEF3 !important;
+                border-color: rgba(255,255,255,0.08) !important;
+            }
+
+            /* Make small labels and meta text lighter */
+            .text-gray-600, .text-gray-700, .text-gray-800 {
+                color: rgba(230,238,243,0.85) !important;
+            }
+
+            /* Table backgrounds and borders */
+            table, thead, tbody, tr, td, th {
+                background: transparent !important;
+                color: inherit !important;
+                border-color: rgba(255,255,255,0.04) !important;
+            }
+
+            /* Floating cart and toggles should match dark theme */
+            #floatingCart, #cartToggle, #holdToggle {
+                background-color: rgba(7,12,20,0.95) !important;
+                color: #E6EEF3 !important;
+                border-color: rgba(255,255,255,0.03) !important;
+            }
+
+            /* Ensure icons remain visible */
+            #navContainer button span:first-child {
+                background-color: rgba(255,255,255,0.06) !important;
+                color: #F8FAFC !important;
+            }
+
+            /* Printer status contrast */
+            .printer-status {
+                color: #FFF !important;
+            }
+            /* Mobile table adjustments: smaller fonts, fixed layout and column widths
+               so cart rows align under headers and fit small screens. */
+            /* Reduce font only for table body cells; keep headers at a readable size */
+            table, thead, tbody, tr, td {
+                font-size: 12px !important;
+            }
+            /* Keep header slightly larger so it remains clear (do not shrink header) */
+            thead th {
+                font-size: 13px !important;
+                font-weight: 700 !important;
+                padding: 0.45rem 0.6rem !important;
+            }
+            table {
+                table-layout: fixed !important;
+                width: 100% !important;
+            }
+            /* Ensure product cells truncate instead of wrapping and use a smaller font
+               than the table headers so headers remain prominent. Reduce inputs too. */
+            #scannerProductTable td {
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                padding: 0.25rem 0.4rem !important;
+                font-weight: 600 !important;
+                font-size: 10px !important; /* make body smaller */
+            }
+            /* Override large input font-size inside table (quantity fields etc.) */
+            #scannerProductTable input[type="number"],
+            #scannerProductTable input[type="text"] {
+                font-size: 11px !important;
+                padding: 0.25rem !important;
+                height: auto !important;
+            }
+            /* Column widths for cart table (Nama | Harga | Jumlah | Diskon | Total | Aksi) */
+            #scannerProductTable td:nth-child(1) { width: 40% !important; }
+            #scannerProductTable td:nth-child(2) { width: 15% !important; text-align: right !important; }
+            #scannerProductTable td:nth-child(3) { width: 10% !important; text-align: center !important; }
+            #scannerProductTable td:nth-child(4) { width: 12% !important; text-align: center !important; }
+            #scannerProductTable td:nth-child(5) { width: 18% !important; text-align: right !important; }
+            #scannerProductTable td:nth-child(6) { width: 5% !important; text-align: center !important; }
+
+            /* Floating cart list items smaller text to match table body */
+            #cartItems, #cartItems * {
+                font-size: 10px !important;
+            }
+            /* Override hover rules that force black text so rows stay readable in dark mode */
+            #scannerProductTable tr:hover,
+            #cartItems > div:hover,
+            #transactionHistory tr:hover {
+                color: #E6EEF3 !important;
+                -webkit-text-stroke: 0 !important;
+                background-color: rgba(255,255,255,0.02) !important;
+            }
+            /* Slightly reduce size of the Total Bayar badge on mobile so it doesn't dominate the card
+               Use :not(.hidden) so JavaScript can fully hide the element by adding the `hidden` class. */
+            #totalPayNotice:not(.hidden) {
+                font-size: 0.95rem !important;
+                padding: 0.25rem 0.5rem !important;
+                border-radius: 6px !important;
+            }
+            #totalPayNotice #totalPayAmount {
+                font-size: 1rem !important;
+                font-weight: 700 !important;
+            }
+
+            /* Ensure the total badge has a small gap below the heading when placed under 'Keranjang'.
+               This rule is global (not only mobile) to keep spacing consistent after we moved the element
+               out of the heading in the HTML. Only force display when the element is NOT hidden so that
+               JavaScript can still hide it with the `hidden` class. */
+            #totalPayNotice:not(.hidden) {
+                margin-top: 0.5rem !important;
+                display: inline-block !important;
+            }
+            /* Force the badge text color to green so it matches the previous appearance
+               even when theme or mobile overrides change colors. */
+            #totalPayNotice,
+            #totalPayNotice #totalPayAmount {
+                color: #10b981 !important; /* green-500 */
+            }
         }
+
+/* Tighten vertical spacing on mobile between Scanner title, input, Cart header and Total badge */
+@media (max-width: 640px) {
+    /* Reduce space below the Scanner Barcode title */
+    #scannerContent h2 {
+        margin-bottom: 0.35rem !important; /* tighter than original mb-3 */
+    }
+
+    /* Bring the barcode input closer to the title */
+    #barcodeInput {
+        margin-top: 0.35rem !important; /* override mt-3 / mt-4 */
+        margin-bottom: 0.25rem !important;
+    }
+
+    /* Reduce the gap before the cart section (outer wrapper uses mt-6) */
+    #scannerContent .mt-6 {
+        margin-top: 0.25rem !important;
+    }
+
+    /* Slightly tighten the cart header spacing and the total badge spacing */
+    #scannerContent h3 {
+        margin-top: 0.15rem !important;
+        margin-bottom: 0.25rem !important;
+    }
+
+    /* Make the Total Bayar badge sit a bit closer to the heading
+       Only apply when visible so `.hidden` can fully collapse it. */
+    #totalPayNotice:not(.hidden) {
+        margin-top: 0.25rem !important;
+    }
+}
+
+/* Alignment and emphasis rules for small screens: left-align labels and right-align glowing total */
+@media (max-width: 640px) {
+    /* Left-align Scanner and Cart headings (they use flex by default) */
+    #scannerContent h2,
+    #scannerContent h3 {
+        text-align: left !important;
+        justify-content: flex-start !important; /* for flex containers */
+        gap: 0.5rem !important;
+    }
+
+    /* If the heading contains an icon + text, keep icon and text left-aligned */
+    #scannerContent h2 > span, #scannerContent h3 > div {
+        display: inline-flex !important;
+        align-items: center !important;
+    }
+
+    /* Right-align the Total Bayar badge so it appears on the right edge.
+       Apply visibility/layout only when the element is not hidden so JS can toggle `.hidden`. */
+    #totalPayNotice:not(.hidden) {
+        display: block !important;
+        width: 100% !important;
+        text-align: right !important;
+        margin-top: 0.125rem !important;
+        padding: 0.25rem 0.6rem !important;
+        background-color: rgba(0,0,0,0.65) !important; /* keep contrast */
+        border-radius: 6px !important;
+        color: #10b981 !important; /* green-500 */
+        font-weight: 800 !important;
+        /* Strong green glow to make it pop */
+        text-shadow: 0 0 6px rgba(16,185,129,0.85), 0 1px 2px rgba(0,0,0,0.6) !important;
+        box-shadow: 0 6px 18px rgba(16,185,129,0.12) !important;
+    }
+
+    /* Ensure the numeric amount inside also uses the same emphasis */
+    #totalPayNotice #totalPayAmount {
+        color: #D9FFE9 !important; /* slightly lighter green for contrast */
+        font-size: 1.05rem !important;
+        font-weight: 900 !important;
+        text-shadow: 0 0 8px rgba(16,185,129,0.95) !important;
+    }
+}
         
         .scanner-line {
             animation: scan 2s linear infinite;
@@ -391,10 +805,197 @@ header {
  * (text inputs, numeric inputs and textareas) to black. The
  * !important flag ensures this rule takes precedence over theme styles.
  */
-input[type="text"],
-input[type="number"],
-textarea {
-    color: #000000 !important;
+@media (min-width: 640px) {
+    /* Keep desktop inputs using dark text by default. Mobile overrides live
+       in the mobile media query above so inputs remain light there. */
+    input[type="text"],
+    input[type="number"],
+    textarea {
+        color: #000000 !important;
+    }
+
+/* Stacked table rows on mobile: convert each table row into a vertical card
+   so the product name sits at the top and the action controls sit at the bottom.
+   This uses nth-child labels to avoid HTML changes. */
+@media (max-width: 640px) {
+    /* hide original headers */
+    #scannerProductTable thead { display: none !important; }
+
+    /* make table structure flow as blocks */
+    #scannerProductTable, #scannerProductTable tbody { display: block !important; width: 100% !important; }
+    #scannerProductTable tr { display: flex !important; flex-direction: column !important; gap: 0.25rem !important; margin-bottom: 0.5rem !important; background: rgba(255,255,255,0.02) !important; padding: 0.5rem !important; border-radius: 8px !important; border: 1px solid rgba(255,255,255,0.03) !important; }
+    #scannerProductTable td { display: block !important; width: 100% !important; text-align: left !important; padding: 0.25rem 0.35rem !important; box-sizing: border-box !important; }
+
+    /* Labels using ::before so we don't need to change HTML */
+    #scannerProductTable td:nth-child(1)::before { content: "Nama Produk"; display: block; font-weight: 700; color: rgba(230,238,243,0.95); margin-bottom: 0.15rem; }
+    #scannerProductTable td:nth-child(2)::before { content: "Harga"; display: block; font-weight: 600; color: rgba(230,238,243,0.85); margin-bottom: 0.15rem; }
+    #scannerProductTable td:nth-child(3)::before { content: "Jumlah"; display: block; font-weight: 600; color: rgba(230,238,243,0.85); margin-bottom: 0.15rem; }
+    #scannerProductTable td:nth-child(4)::before { content: "Diskon (Rp)"; display: block; font-weight: 600; color: rgba(230,238,243,0.85); margin-bottom: 0.15rem; }
+    #scannerProductTable td:nth-child(5)::before { content: "Total"; display: block; font-weight: 600; color: rgba(230,238,243,0.85); margin-bottom: 0.15rem; }
+    #scannerProductTable td:nth-child(6)::before { content: "Aksi"; display: block; font-weight: 600; color: rgba(230,238,243,0.85); margin-bottom: 0.15rem; }
+
+    /* Emphasize the product name value and make action row stand out */
+    #scannerProductTable td:nth-child(1) { font-size: 12px !important; color: #F9FAFB !important; }
+    #scannerProductTable td:nth-child(6) { display: flex !important; justify-content: flex-end !important; gap: 0.4rem !important; }
+
+    /* Reduce input widths inside the stacked card so layout stays compact */
+    #scannerProductTable td input[type="number"],
+    #scannerProductTable td input[type="text"] {
+        width: 3.2rem !important;
+    }
+}
+}
+
+/* Final mobile-specific overrides appended after other rules to ensure they win
+   in the cascade. These enforce smaller table body and input sizes on narrow
+   screens (phones) even if other rules appear later in the file. */
+@media (max-width: 640px) {
+    /* Force table body cells smaller */
+    #scannerProductTable td {
+        font-size: 10px !important;
+        padding: 0.2rem 0.35rem !important;
+    }
+
+    /* Inputs inside the table (quantity fields) often have their own large rules.
+       Override them here with !important and more specific selector so they no
+       longer appear oversized on mobile. */
+    #scannerProductTable input[type="number"],
+    #scannerProductTable input[type="text"] {
+        font-size: 11px !important;
+        padding: 0.2rem !important;
+        height: auto !important;
+        line-height: 1 !important;
+    }
+
+    /* Floating cart items too */
+    #cartItems, #cartItems * {
+        font-size: 10px !important;
+    }
+
+    /* Ensure select/option inside table are also legible but compact */
+    #scannerProductTable select,
+    #scannerProductTable option {
+        font-size: 11px !important;
+    }
+}
+
+/* Make product price in cart more prominent on mobile: double the body size */
+@media (max-width: 640px) {
+    /* Price column in the scanner product table (second column) */
+    #scannerProductTable td:nth-child(2) {
+        font-size: 16px !important; /* reduced for compactness */
+        font-weight: 700 !important;
+        color: #E6FFF0 !important;
+        text-align: right !important;
+        padding-right: 0.45rem !important;
+    }
+
+    /* If floating cart shows individual prices inside #cartItems, make them larger too */
+    #cartItems .price, #cartItems .product-price, #cartItems span.price {
+        font-size: 16px !important;
+        font-weight: 700 !important;
+        color: #E6FFF0 !important;
+    }
+}
+
+/* Additional mobile fixes: target the specific table used in the scanner cart
+   (it uses `w-full bg-white` classes) and force the header hidden and rows
+   stacked. These rules are appended last so they override earlier definitions. */
+@media (max-width: 640px) {
+    /* Hide thead for the main tables to avoid leaving headers visible */
+    table.w-full.bg-white thead {
+        display: none !important;
+    }
+
+    /* Ensure the table and the specific tbody behave as block flow so rows can stack */
+    table.w-full.bg-white {
+        display: block !important;
+        width: 100% !important;
+    }
+    table.w-full.bg-white tbody#scannerProductTable {
+        display: block !important;
+        width: 100% !important;
+    }
+
+    /* Turn each row into a vertical card (compact) */
+    table.w-full.bg-white tbody#scannerProductTable tr {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 0.18rem !important;
+        margin-bottom: 0.38rem !important;
+        background: rgba(255,255,255,0.02) !important;
+        padding: 0.34rem !important;
+        border-radius: 8px !important;
+        border: 1px solid rgba(255,255,255,0.03) !important;
+    }
+    table.w-full.bg-white tbody#scannerProductTable td {
+        display: block !important;
+        width: 100% !important;
+        text-align: left !important;
+        padding: 0.12rem 0.28rem !important;
+        box-sizing: border-box !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        font-size: 12px !important;
+        line-height: 1.05 !important;
+    }
+    /* Product name (first cell) slightly larger but compact */
+    table.w-full.bg-white tbody#scannerProductTable td:nth-child(1) {
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        padding-bottom: 0.12rem !important;
+    }
+    /* Quantity and discount controls: make controls compact */
+    table.w-full.bg-white tbody#scannerProductTable td:nth-child(3),
+    table.w-full.bg-white tbody#scannerProductTable td:nth-child(4) {
+        font-size: 12px !important;
+    }
+    /* Reduce button and input sizes inside the cart rows */
+    #scannerProductTable button,
+    #scannerProductTable .btn,
+    #scannerProductTable input[type="number"],
+    #scannerProductTable input[type="text"] {
+        font-size: 12px !important;
+        padding: 0.16rem 0.24rem !important;
+        border-radius: 6px !important;
+    }
+    /* Smaller plus/minus controls if implemented as buttons */
+    #scannerProductTable .qty-btn {
+        width: 2.1rem !important;
+        height: 2.1rem !important;
+        padding: 0 !important;
+        font-size: 14px !important;
+    }
+
+    /* Further compact controls: reduce heights and spin/input sizes to remove oversized boxes */
+    #scannerProductTable input[type="number"],
+    #scannerProductTable input[type="text"] {
+        min-height: 28px !important;
+        height: 28px !important;
+        line-height: 1 !important;
+        padding: 0.12rem 0.28rem !important;
+        font-size: 12px !important;
+        box-sizing: border-box !important;
+    }
+    #scannerProductTable select {
+        min-height: 28px !important;
+        height: 28px !important;
+        padding: 0.08rem 0.4rem !important;
+        font-size: 12px !important;
+    }
+    #scannerProductTable button,
+    #scannerProductTable .btn {
+        min-height: 28px !important;
+        height: 28px !important;
+        padding: 0 0.35rem !important;
+        font-size: 13px !important;
+    }
+    /* Remove large shadows on small control boxes to reduce perceived size */
+    #scannerProductTable button,
+    #scannerProductTable .btn,
+    #scannerProductTable input[type="number"] {
+        box-shadow: none !important;
+    }
 }
 
 /*
@@ -428,8 +1029,13 @@ textarea {
    `top` property will only apply when `position: fixed` is in effect; in
    regular horizontal layouts the nav remains static and this rule has no
    impact. */
-#navWrapper {
-    top: 30% !important;
+@media (min-width: 640px) {
+    /* Only apply vertical centering of the nav wrapper on tablet/desktop.
+       Keeping this rule out of the global scope prevents it from
+       interfering with the fixed bottom navigation used on mobile. */
+    #navWrapper {
+        top: 30% !important;
+    }
 }
 
 /* -----------------------------------------------------------------------------
@@ -505,20 +1111,21 @@ textarea {
    explicit background on the cells, the table uses the same dark scheme
    as the Analisa tab, and rows are delineated by borders and hover states. */
 
-# Auto‑hide navigation on larger screens
-#
-# The user requested that the vertical taskbar (navigation tabs) auto‑hide
-# and slide out of view until hovered.  To accomplish this without
-# disrupting the existing responsive layout, we attach a class
-# (`auto-hide-nav`) to the nav wrapper in the HTML.  On screens wider
-# than 640px (i.e. tablet and desktop), the nav wrapper is fixed to
-# the left edge of the viewport and translated almost entirely off
-# screen, leaving a small 32px strip visible as a handle.  When the
-# user hovers over this strip, the nav slides into full view and
-# returns to partial opacity.  The !important modifiers ensure our
-# transforms override any theme‑specific positioning rules injected
-# dynamically by the application.  These rules do not affect the
-# horizontal tab bar used on small screens.
+/* Auto‑hide navigation on larger screens
+ *
+ * The user requested that the vertical taskbar (navigation tabs) auto‑hide
+ * and slide out of view until hovered.  To accomplish this without
+ * disrupting the existing responsive layout, we attach a class
+ * (`auto-hide-nav`) to the nav wrapper in the HTML.  On screens wider
+ * than 640px (i.e. tablet and desktop), the nav wrapper is fixed to
+ * the left edge of the viewport and translated almost entirely off
+ * screen, leaving a small 32px strip visible as a handle.  When the
+ * user hovers over this strip, the nav slides into full view and
+ * returns to partial opacity.  The !important modifiers ensure our
+ * transforms override any theme‑specific positioning rules injected
+ * dynamically by the application.  These rules do not affect the
+ * horizontal tab bar used on small screens.
+ */
 
 @media (min-width: 640px) {
     /* Collapsed state: slide the nav off the screen leaving a 32px handle.
@@ -546,7 +1153,8 @@ textarea {
         /* Stack children vertically */
         display: flex !important;
         flex-direction: column !important;
-        align-items: stretch !important;
+        /* Keep children top-aligned so sidebar content flows from the header down */
+        align-items: flex-start !important;
     }
 
     /*
@@ -557,29 +1165,207 @@ textarea {
      * overrides eliminate those margins so that the flexbox centering takes
      * effect properly.
      */
-    #navWrapper.auto-hide-nav #navContainer {
-        /* Use auto margins to vertically center the group of navigation buttons
-           within the sidebar.  Setting both top and bottom margins to `auto`
-           causes the browser to distribute the remaining space equally above
-           and below the element.  This centers the tab buttons (Scanner,
-           Produk, Riwayat, Analisa, Keranjang) between the top and bottom
-           edges of the sidebar. */
-        margin-top: auto !important;
-        margin-bottom: auto !important;
+    /* Place navigation group near the top and keep sync controls above it
+       so the left column matches the expected previous layout. */
+    #navWrapper.auto-hide-nav #syncControlContainer {
+        /* Ensure sync controls appear after the navigation group (below the Cart tab).
+           Use margins that match the nav item gap (0.5rem) so spacing between
+           "Analisa → Keranjang" and "Keranjang → Auto Sync" is visually consistent. */
+        order: 1 !important;
+        width: 100% !important;
+        margin-top: 0.5rem !important;
+        margin-bottom: 0.5rem !important;
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+        position: relative !important;
     }
 
-    #navWrapper.auto-hide-nav #syncControlContainer {
-        /* Ensure the sync controls stick to the bottom of the sidebar by
-           removing any automatic centering.  No top or bottom margins are
-           applied so that the element naturally aligns to the end of the
-           flex container. */
-        margin-top: 0 !important;
-        margin-bottom: 0 !important;
+    #navWrapper.auto-hide-nav #navContainer {
+        /* Center the group of navigation buttons vertically inside the
+           collapsed sidebar so the Cart tab sits together with other
+           nav buttons. Using auto margins centers the element within
+           the flex column parent. */
+        margin-top: auto !important;
+        margin-bottom: auto !important;
+        width: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 0.5rem !important;
     }
 
     /* Expanded state on hover: slide nav fully into view and restore opacity. */
     #navWrapper.auto-hide-nav:hover {
         transform: translateX(0) !important;
         opacity: 1 !important;
+    }
+}
+
+/* --- Ensure Total Bayar is larger and behaves like a button on mobile --- */
+@media (max-width: 640px) {
+            /* Slightly larger badge and clearer tap target
+               Apply these only when the element is NOT hidden so that the
+               `.hidden` class can fully hide the element regardless of id
+               specificity. */
+    #totalPayNotice:not(.hidden) {
+        font-size: 1.15rem !important;
+        padding: 0.5rem 0.8rem !important;
+        border: none !important;
+        cursor: pointer !important;
+        transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+    }
+
+    /* Emphasize the amount more */
+    #totalPayNotice #totalPayAmount {
+        font-size: 1.25rem !important;
+        font-weight: 900 !important;
+        text-shadow: 0 0 10px rgba(16,185,129,0.98) !important;
+    }
+
+    /* Hover/active/focus affordances for touch and keyboard users */
+    #totalPayNotice:hover {
+        transform: translateY(-3px) !important;
+        box-shadow: 0 14px 30px rgba(16,185,129,0.14) !important;
+    }
+    #totalPayNotice:active {
+        transform: translateY(-1px) !important;
+    }
+    #totalPayNotice:focus {
+        outline: 3px solid rgba(16,185,129,0.18) !important;
+        outline-offset: 2px !important;
+    }
+}
+
+/* Mobile-only: nav button glow + keep Total Bayar visible while scrolling */
+@media (max-width: 640px) {
+    /* Make bottom nav icons appear to glow and lift on hover/active. Kept
+       inside mobile media query so desktop layout unchanged. */
+    #navContainer button span:first-child {
+        transition: box-shadow 0.18s ease, transform 0.12s ease, background-color 0.12s ease;
+        /* stronger subtle glow so icons pop on dark backgrounds */
+        box-shadow: 0 10px 30px rgba(16,185,129,0.16), 0 0 12px rgba(16,185,129,0.08);
+        background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+    }
+    #navContainer button:not(.active):hover span:first-child,
+    #navContainer button:focus span:first-child {
+        transform: translateY(-4px);
+        box-shadow: 0 20px 60px rgba(16,185,129,0.36), 0 0 28px rgba(16,185,129,0.32);
+    }
+    /* Active/current tab gets stronger glow */
+    #navContainer button.active span:first-child,
+    #navContainer button[aria-current="true"] span:first-child {
+        box-shadow: 0 24px 80px rgba(16,185,129,0.48), 0 0 40px rgba(16,185,129,0.46);
+        transform: translateY(-2px);
+    }
+
+    /* Keep Total Bayar always visible while scrolling by fixing it above the
+       bottom nav. This fixed position is used for the floating button behavior
+       on mobile; it doesn't affect the sticky `scan-pay-wrapper` which uses
+       --header-offset to remain below the header. */
+        #totalPayNotice:not(.hidden) {
+            position: fixed !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            bottom: calc(6.8rem + env(safe-area-inset-bottom, 0.5rem)) !important;
+            z-index: 1100 !important; /* above the nav */
+            width: calc(100% - 2rem) !important;
+            max-width: 720px !important;
+            border-radius: 8px !important;
+            backdrop-filter: blur(6px) saturate(120%) !important;
+            -webkit-backdrop-filter: blur(6px) saturate(120%) !important;
+            box-shadow: 0 18px 50px rgba(16,185,129,0.28), 0 6px 28px rgba(2,6,23,0.6) !important;
+            border: 1px solid rgba(16,185,129,0.12) !important;
+        }
+}
+
+/* Ensure when the button is inside the scanner (under barcode input) it is right-aligned
+   and not fixed. This overrides the mobile fixed positioning when placed within #scannerContent. */
+#scannerContent .scan-pay-wrapper {
+    display: flex;
+    justify-content: flex-end;
+}
+#scannerContent .scan-pay-wrapper #totalPayNotice {
+    position: static !important;
+    transform: none !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    width: auto !important;
+    max-width: none !important;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.12) !important;
+}
+
+/* On very small screens keep it full-width but right-aligned content */
+@media (max-width: 420px) {
+    #scannerContent .scan-pay-wrapper {
+        justify-content: flex-end;
+        padding-right: 0.25rem;
+    }
+    #scannerContent .scan-pay-wrapper #totalPayNotice {
+        width: auto !important;
+        font-size: 1rem !important;
+        padding: 0.4rem 0.6rem !important;
+    }
+}
+
+/* Make the Total Bayar sticky so it remains visible while the user scrolls the cart.
+   Use a CSS variable `--header-offset` to ensure the sticky element stays below the
+   page header. The variable is computed in JavaScript so it matches dynamic header
+   heights and avoids overlapping. Default fallback is 3.5rem. */
+#scannerContent .scan-pay-wrapper {
+    position: -webkit-sticky;
+    position: sticky;
+    top: var(--header-offset, 3.5rem); /* computed from header height via JS */
+    z-index: 1200; /* above other content */
+    background: transparent; /* keep background consistent */
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+}
+
+/* Ensure the button keeps a clear background so it's legible when sticky */
+#scannerContent .scan-pay-wrapper #totalPayNotice {
+    background-clip: padding-box;
+}
+
+/* Product card tuning: ensure product tiles are balanced, compact on mobile and
+   do not alter desktop layout unexpectedly. These rules target the helper
+   class `.product-card` added to product tiles in the JS renderers. */
+.product-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    /* keep a small min-height so cards align nicely in grids */
+    min-height: 88px;
+    background-clip: padding-box;
+}
+
+/* Desktop: slightly larger padding and clear typography (won't affect theme overrides) */
+@media (min-width: 641px) {
+    .product-card {
+        padding: 0.75rem; /* matches existing p-3 but allows overrides */
+        font-size: 0.95rem;
+    }
+    .product-card .font-semibold {
+        font-size: 0.98rem;
+    }
+}
+
+/* Mobile: reduce padding, tighten font and increase tap target density */
+@media (max-width: 640px) {
+    .product-card {
+        padding: 0.45rem !important;
+        min-height: 64px;
+        font-size: 14px;
+    }
+    .product-card .font-semibold {
+        font-size: 0.95rem !important;
+        line-height: 1.1 !important;
+    }
+    /* Ensure action buttons remain usable on small cards */
+    .product-card button {
+        padding: 0.28rem 0.45rem !important;
+        min-height: 34px !important;
+        font-size: 13px !important;
     }
 }

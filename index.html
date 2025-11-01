@@ -428,10 +428,10 @@
                 <!-- Navigation Tabs -->
                 <div id="navContainer" class="bg-white rounded-lg sm:rounded-xl shadow-lg mb-3 sm:mb-6">
                     <div class="flex border-b border-gray-200 overflow-x-auto">
-                    <button onclick="switchTab('scanner')" id="scannerTab" class="flex-1 py-2 sm:py-3 flex flex-col items-center justify-center">
-                        <!-- Circular icon for scanner. Always visible on mobile; label appears on larger screens -->
-                        <span class="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-green-500 text-white text-xl">📷</span>
-                        <span class="hidden sm:block text-xs mt-1 text-gray-700">Scanner</span>
+                    <button onclick="switchTab('scanner')" id="scannerTab" aria-label="Transaksi" class="flex-1 py-2 sm:py-3 flex flex-col items-center justify-center">
+                        <!-- Icon for Transaksi (receipt) to match tab label. Always visible on mobile; label appears on larger screens -->
+                        <span class="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-green-500 text-white text-xl">🧾</span>
+                        <span class="hidden sm:block text-xs mt-1 text-gray-700">Transaksi</span>
                     </button>
                     <button onclick="switchTab('products')" id="productsTab" class="flex-1 py-2 sm:py-3 flex flex-col items-center justify-center">
                         <span class="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-blue-500 text-white text-xl">📦</span>
@@ -498,6 +498,13 @@
                             <div id="cameraScanner" class="mt-3 hidden"></div>
                         </div>
 
+                        <!-- Place the Total Bayar button directly under the scan input, right aligned -->
+                        <div class="scan-pay-wrapper mt-2 mb-2">
+                            <button id="totalPayNotice" type="button" onclick="showUnifiedPaymentModal()" aria-label="Bayar sekarang" class="px-3 py-1 rounded-md bg-black shadow-md text-green-400 font-extrabold text-xl tracking-wide" style="text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+                                Total Bayar: <span id="totalPayAmount">Rp 0</span>
+                            </button>
+                        </div>
+
                         <!-- Cart and Hold Containers -->
                         <div class="mt-6 flex flex-col md:flex-row gap-4">
                             <!-- Cart (Product Table) -->
@@ -517,21 +524,11 @@
                                     <!-- Renamed header to reflect the contents below, which show the cart items -->
                                     <span>Keranjang</span>
                                 </div>
-                                <!-- Notifikasi total bayar akan muncul di kanan bila keranjang tidak kosong -->
-                                <!-- Notification for total payment. To maximize readability, we use a dark background and bright green
-                                     text. The badge becomes highly visible even at a glance. Hidden by default until items are
-                                     in the cart. -->
-                                <div id="totalPayNotice" class="hidden px-3 py-1 rounded-md bg-black shadow-md text-green-400 font-extrabold text-xl tracking-wide" style="text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
-                                    Total Bayar: <span id="totalPayAmount">Rp 0</span>
-                                </div>
                                 </h3>
+                                <!-- Notifikasi total bayar akan muncul di bawah judul Keranjang -->
+                                        <!-- Notification for total payment. Previously shown here; moved under the scan input for better ergonomics. -->
 
-                                <!-- Search for table -->
-                                <div class="mb-4 relative">
-                                    <input type="text" id="scannerProductSearch" placeholder="Cari produk dalam keranjang..." class="w-full pl-10 pr-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-sm" oninput="searchScannerProducts(this.value)" onkeypress="handleScannerTableSearch(event)">
-                                    <!-- Place a search icon in the placeholder area of the cart search input -->
-                                    <div class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">🔍</div>
-                                </div>
+                                <!-- Search input for scanner cart removed as per user request -->
 
                                 <!-- Product Table -->
                                 <div class="overflow-x-auto">
@@ -597,6 +594,13 @@
                             </button>
                             <button id="viewListButton" onclick="setProductViewMode('list')" class="px-3 py-1 rounded-lg text-sm font-sem-bold active-press bg-gray-200 text-gray-700 hover:bg-gray-300">
                                 List
+                            </button>
+                            <!-- Additional view modes: Compact cards and Dense list -->
+                            <button id="viewCompactButton" onclick="setProductViewMode('compact')" class="px-3 py-1 rounded-lg text-sm font-sem-bold active-press bg-gray-200 text-gray-700 hover:bg-gray-300">
+                                Compact
+                            </button>
+                            <button id="viewDenseButton" onclick="setProductViewMode('dense')" class="px-3 py-1 rounded-lg text-sm font-sem-bold active-press bg-gray-200 text-gray-700 hover:bg-gray-300">
+                                Dense
                             </button>
                         </div>
 
@@ -696,7 +700,7 @@
                         </div>
 
                         <!-- Filter Periode -->
-                        <div class="bg-gray-50 p-4 rounded-lg mb-6">
+                        <div id="analysisFilterContainer" class="bg-gray-50 p-4 rounded-lg mb-6">
                             <h3 class="text-lg font-semibold text-gray-700 mb-3">Filter Periode</h3>
                             <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
                                 <button onclick="filterAnalysis('today')" id="filterToday" class="bg-green-500 text-white py-2 px-4 rounded-lg font-sem-bold">
@@ -721,6 +725,12 @@
                                 <button id="nextDayAnalysis" onclick="moveAnalysisDate(1)" class="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded-lg font-sem-bold">
                                     →
                                 </button>
+                            </div>
+                            <!-- Month navigation (hidden by default, shown when 'Bulan Ini' filter active) -->
+                            <div id="analysisMonthNavigation" class="hidden flex items-center justify-center space-x-2 mt-3">
+                                <button id="prevMonthAnalysis" onclick="moveAnalysisMonth(-1)" class="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded-lg font-sem-bold">←</button>
+                                <span id="analysisMonthLabel" class="font-sem-bold text-gray-700"></span>
+                                <button id="nextMonthAnalysis" onclick="moveAnalysisMonth(1)" class="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded-lg font-sem-bold">→</button>
                             </div>
                         </div>
 
@@ -766,7 +776,29 @@
                 <span class="font-sem-bold text-gray-700">Pilih Tema</span>
                 <button onclick="toggleThemeMenu()" class="text-gray-500 hover:text-gray-700">✖️</button>
             </div>
-            <div class="space-y-2">
+            <!-- Mobile-only theme picker: visible only on small screens -->
+            <div class="space-y-2 mobile-only">
+                <div class="text-sm font-semibold text-gray-600">Tema Mobile</div>
+                <button onclick="applyMobileTheme('mobile-light-1')" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                    <span>Mobile Light A</span>
+                    <span class="w-4 h-4 rounded-full" style="background: #eff6ff;"></span>
+                </button>
+                <button onclick="applyMobileTheme('mobile-light-2')" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                    <span>Mobile Light B</span>
+                    <span class="w-4 h-4 rounded-full" style="background: #fff7ed;"></span>
+                </button>
+                <button onclick="applyMobileTheme('mobile-dark-1')" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                    <span>Mobile Dark A</span>
+                    <span class="w-4 h-4 rounded-full" style="background: #0b1b2b;"></span>
+                </button>
+                <button onclick="applyMobileTheme('mobile-dark-2')" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
+                    <span>Mobile Dark B</span>
+                    <span class="w-4 h-4 rounded-full" style="background: #071426;"></span>
+                </button>
+            </div>
+
+            <!-- Desktop-only themes: hidden on mobile to avoid conflicting layout overrides -->
+            <div class="space-y-2 desktop-only">
                 <button onclick="applyTheme(1)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
                     <span>Tema 1</span>
                     <!-- Dark neutral preview -->
@@ -787,6 +819,7 @@
                     <!-- Dark purple preview -->
                     <span class="w-4 h-4 rounded-full" style="background: #2b1b4f;"></span>
                 </button>
+                <!-- ... keep the rest of desktop theme buttons as before ... -->
                 <button onclick="applyTheme(5)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
                     <span>Tema 5</span>
                     <!-- Dark teal preview -->
@@ -817,7 +850,6 @@
                     <!-- Dark pink preview -->
                     <span class="w-4 h-4 rounded-full" style="background: #341f2e;"></span>
                 </button>
-
                 <!-- Additional Zen Minimal variations (Themes 21-30) -->
                 <button onclick="applyTheme(21)" class="flex items-center justify-between w-full px-3 py-2 rounded-md hover:bg-gray-100 focus:outline-none">
                     <span>Tema 21</span>
@@ -1497,8 +1529,16 @@
              initialization fails or if the library is unavailable. -->
         <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
 
-        <!-- Load application script after external libraries to ensure symbols are defined -->
-        <script src="script.js"></script>
+       <!-- Invisible capture input for USB barcode scanners.
+           This off‑screen but focusable input receives scanner keystrokes
+           immediately when scan mode is ON. It's visually hidden but
+           reachable via focus() so scanner output won't be lost due to
+           focus races with other UI elements. -->
+       <input type="text" id="scanCapture" aria-hidden="true" autocomplete="off" autocorrect="off" spellcheck="false"
+            style="position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0;" />
+
+       <!-- Load application script after external libraries to ensure symbols are defined -->
+       <script src="script.js"></script>
 
         <!-- Set default product view to list on small screens. This script runs
              after the application script has loaded to ensure the

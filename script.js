@@ -55,6 +55,8 @@ let holdData = [];
 // this value will change to shift the analysis date. Selecting another period or
 // resetting to "Hari Ini" will reset this offset back to 0.
 let analysisDateOffset = 0;
+// Current month offset for analysis view (0 = this month, negative = past months, positive = future months)
+let analysisMonthOffset = 0;
 // Current day offset for history view (0 = today, negative = past, positive = future).
 // When using the "←" / "→" buttons in the History tab, this value will change
 // to shift the displayed date. Selecting another period filter will reset this
@@ -122,6 +124,31 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(centerNavButtons, 150);
 });
 window.addEventListener('resize', centerNavButtons);
+
+/**
+ * Compute the height of the page header and expose it as a CSS variable
+ * (--header-offset) used by the sticky Total Bayar wrapper. This ensures
+ * the sticky element will appear below the header and not overlap it even
+ * if the header height changes (responsive, different fonts, etc.).
+ */
+function computeHeaderOffset() {
+    try {
+        const header = document.querySelector('header');
+        if (!header) return;
+        // Use getBoundingClientRect to include the visible height including padding
+        const rect = header.getBoundingClientRect();
+        // Add a small gap so the Total Bayar sits visibly below the header
+        const gap = 8; // px
+        const offsetPx = Math.ceil(rect.height + gap);
+        document.documentElement.style.setProperty('--header-offset', offsetPx + 'px');
+    } catch (err) {
+        // silent
+    }
+}
+
+// Keep the header offset up to date on resize/orientation changes
+window.addEventListener('resize', computeHeaderOffset);
+window.addEventListener('orientationchange', computeHeaderOffset);
 
 /**
  * Queue of delta changes (e.g., add/update/delete operations) that need to be
@@ -479,9 +506,10 @@ function updateSyncStatus() {
     if (toggleBtn) {
         toggleBtn.textContent = autoSyncEnabled ? 'Auto Sync: ON' : 'Auto Sync: OFF';
         // Reset classes before applying new ones
-        toggleBtn.classList.remove('bg-green-500','bg-gray-300','text-white','text-gray-800');
+        toggleBtn.classList.remove('bg-green-500','bg-gray-300','text-white','text-gray-800','text-black');
         if (autoSyncEnabled) {
-            toggleBtn.classList.add('bg-green-500','text-white');
+            // Keep green background but use black text as requested
+            toggleBtn.classList.add('bg-green-500','text-black');
         } else {
             toggleBtn.classList.add('bg-gray-300','text-gray-800');
         }
@@ -500,10 +528,15 @@ function updateSyncStatus() {
          */
         pendingBtn.classList.remove('hidden');
         if (count > 0) {
-            pendingBtn.classList.remove('bg-gray-300', 'text-gray-400', 'cursor-not-allowed');
+            // Make pending changes button visible and use black text per request
+            pendingBtn.classList.remove('bg-gray-300', 'cursor-not-allowed');
+            // Ensure text stays black
+            pendingBtn.classList.add('text-black');
             pendingBtn.disabled = false;
         } else {
-            pendingBtn.classList.add('bg-gray-300', 'text-gray-400', 'cursor-not-allowed');
+            // Even when there are no pending changes, keep text black per user request.
+            pendingBtn.classList.add('bg-gray-300', 'cursor-not-allowed');
+            pendingBtn.classList.add('text-black');
             pendingBtn.disabled = true;
         }
     }
@@ -853,16 +886,26 @@ window.addEventListener('load', () => {
     // requesting pending deltas to be processed.  Ignore registration
     // failures silently.
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('service-worker.js').catch(err => {
-            console.warn('Service worker registration failed:', err);
-        });
-        navigator.serviceWorker.addEventListener('message', event => {
-            if (event.data && event.data.type === 'sync') {
-                // Received a sync trigger from the service worker; process
-                // pending deltas quietly.
-                processPendingDeltas(true);
-            }
-        });
+        // Service workers require a secure context (https) or localhost.
+        // When the app is opened via the file:// scheme (e.g. double-clicking
+        // index.html) registration will fail with the TypeError you saw.
+        // Only attempt registration when served over http(s) or on localhost.
+        const canRegisterSW = (location.protocol === 'https:' || location.protocol === 'http:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+        if (canRegisterSW) {
+            navigator.serviceWorker.register('service-worker.js').catch(err => {
+                console.warn('Service worker registration failed:', err);
+            });
+            navigator.serviceWorker.addEventListener('message', event => {
+                if (event.data && event.data.type === 'sync') {
+                    // Received a sync trigger from the service worker; process
+                    // pending deltas quietly.
+                    processPendingDeltas(true);
+                }
+            });
+        } else {
+            // Helpful debug message for developers running the app from file://
+            console.warn('Service worker not registered: page is not served over http(s) or localhost (current protocol=' + location.protocol + '). To enable service worker, serve the folder via a local web server.');
+        }
     }
     // Start periodic sync every 30 minutes to ensure queued operations
     // eventually reach Google Sheets.  When autoSync is disabled or the
@@ -874,6 +917,136 @@ window.addEventListener('load', () => {
         }
     }, 30 * 60 * 1000);
 });
+
+/* -------------------------------------------------------------------------
+ * Scan mode helpers: ensure the barcode input stays focused when global
+ * scanner mode is ON. This helps USB keyboard-emulating scanners deliver
+ * their complete payload into the intended field even if other elements
+ * might occasionally steal focus.
+ *
+ * Behavior:
+ * - toggleGlobalScanner(): toggles the `globalScannerEnabled` flag and
+ *   updates the header button.
+ * - When enabled, we focus `#barcodeInput` and attach a blur handler that
+ *   re-focuses the input shortly after blur so the scanner always types
+ *   into it.
+ * - When disabled, handlers are removed and normal focus behavior restored.
+ *
+ * Note: forcing focus can interfere with deliberate user clicks elsewhere.
+ * The UX trade-off matches your request to keep the input active while
+ * scanner mode is ON. If you prefer a softer approach, we can instead
+ * only auto-focus when a scan-like key sequence is detected.
+ * ---------------------------------------------------------------------- */
+
+// Internal references so we can remove handlers later
+let _barcodeForceBlurHandler = null;
+let _barcodeForceFocusGuard = null;
+
+function updateScanToggleButton() {
+    const btn = document.getElementById('toggleScanButton');
+    if (!btn) return;
+    // Update label and styles
+    if (globalScannerEnabled) {
+        btn.classList.remove('bg-yellow-400');
+        btn.classList.add('bg-green-500');
+        btn.innerHTML = '📷 <span class="hidden sm:inline">Scan ON</span>';
+    } else {
+        btn.classList.remove('bg-green-500');
+        btn.classList.add('bg-yellow-500');
+        btn.innerHTML = '📷 <span class="hidden sm:inline">Scan OFF</span>';
+    }
+}
+
+function focusBarcodeInput() {
+    const input = document.getElementById('barcodeInput');
+    if (!input) return;
+    // Prefer calling safeFocus which attempts preventScroll when supported
+    try { safeFocus(input); } catch (e) { try { input.focus(); } catch (err) { /* ignore */ } }
+
+    // If already attached, remove first
+    if (_barcodeForceBlurHandler) {
+        input.removeEventListener('blur', _barcodeForceBlurHandler);
+        _barcodeForceBlurHandler = null;
+    }
+
+    // When blurred (e.g. by a click), re-focus shortly after so the scanner
+    // continues to have a target. Use a short timeout to allow other UI
+    // click handlers to run first if necessary.
+    _barcodeForceBlurHandler = function() {
+        if (!globalScannerEnabled) return;
+                setTimeout(() => {
+                    // Only re-focus if scanner mode still enabled and focus is not inside an input
+                    const a = document.activeElement;
+                    if (!a || (a.tagName !== 'INPUT' && a.tagName !== 'TEXTAREA' && !a.isContentEditable)) {
+                        try { safeFocus(input); } catch (e) { try { input.focus(); } catch (err) { /* ignore */ } }
+                    }
+                }, 80);
+    };
+    input.addEventListener('blur', _barcodeForceBlurHandler);
+
+    // Add a global focus guard: if some script programmatically moves focus
+    // away while scanner mode is ON, re-focus back to the barcode input.
+    if (!_barcodeForceFocusGuard) {
+        _barcodeForceFocusGuard = function(ev) {
+            if (!globalScannerEnabled) return;
+            const a = document.activeElement;
+            if (!a || (a.id !== 'barcodeInput' && !(a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable))) {
+                // If the active element is not an input (i.e., focus went to body), keep focus on barcode input
+                const inputEl = document.getElementById('barcodeInput');
+                if (inputEl) {
+                    try { safeFocus(inputEl); } catch (e) { try { inputEl.focus(); } catch (err) { /* ignore */ } }
+                }
+            }
+        };
+        // Use focusin so it catches focus moves within the document
+        document.addEventListener('focusin', _barcodeForceFocusGuard);
+    }
+}
+
+function stopForcingBarcodeFocus() {
+    const input = document.getElementById('barcodeInput');
+    if (input && _barcodeForceBlurHandler) {
+        input.removeEventListener('blur', _barcodeForceBlurHandler);
+        _barcodeForceBlurHandler = null;
+    }
+    if (_barcodeForceFocusGuard) {
+        document.removeEventListener('focusin', _barcodeForceFocusGuard);
+        _barcodeForceFocusGuard = null;
+    }
+}
+
+/**
+ * Safely focus an element, attempting to use preventScroll when supported.
+ * Falls back to a plain focus() if the options object is not supported.
+ * @param {HTMLElement} el
+ */
+function safeFocus(el) {
+    if (!el || typeof el.focus !== 'function') return;
+    try {
+        el.focus({ preventScroll: true });
+    } catch (e) {
+        try { el.focus(); } catch (err) { /* ignore */ }
+    }
+}
+
+function toggleGlobalScanner() {
+    globalScannerEnabled = !globalScannerEnabled;
+    updateScanToggleButton();
+    if (globalScannerEnabled) {
+        // Focus and start forcing focus on the barcode input
+        focusBarcodeInput();
+    } else {
+        // Stop forcing focus; user can interact normally
+        stopForcingBarcodeFocus();
+    }
+}
+
+// Expose globally so inline onclick handlers work
+window.toggleGlobalScanner = toggleGlobalScanner;
+window.updateScanToggleButton = updateScanToggleButton;
+
+// Ensure toggle button text reflects initial state on load (safe to call multiple times)
+try { updateScanToggleButton(); } catch (e) { /* ignore */ }
 
 /**
  * Format a Date object into a human‑readable string for display in the analysis
@@ -901,6 +1074,16 @@ function formatDateForLabel(date) {
  */
 function toggleAnalysisNavigation(show) {
     const nav = document.getElementById('analysisDateNavigation');
+    if (!nav) return;
+    nav.classList[show ? 'remove' : 'add']('hidden');
+}
+
+/**
+ * Show or hide the analysis month navigation controls (previous/next month).
+ * @param {boolean} show
+ */
+function toggleAnalysisMonthNavigation(show) {
+    const nav = document.getElementById('analysisMonthNavigation');
     if (!nav) return;
     nav.classList[show ? 'remove' : 'add']('hidden');
 }
@@ -935,9 +1118,9 @@ function insertHistoryNavigation() {
         navEl.id = 'historyDateNavigation';
         navEl.className = 'hidden flex items-center justify-center space-x-2 mb-4';
         navEl.innerHTML = `
-            <button id="prevDayHistory" onclick="moveHistoryDate(-1)" class="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded-lg font-sem-bold">←</button>
+            <button id="prevDayHistory" data-action="history-move" data-dir="-1" class="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded-lg font-sem-bold">←</button>
             <span id="historyDateLabel" class="font-sem-bold text-gray-700"></span>
-            <button id="nextDayHistory" onclick="moveHistoryDate(1)" class="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded-lg font-sem-bold">→</button>
+            <button id="nextDayHistory" data-action="history-move" data-dir="1" class="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded-lg font-sem-bold">→</button>
         `;
         parent.insertBefore(navEl, searchContainer);
     } catch (err) {
@@ -964,6 +1147,17 @@ function moveAnalysisDate(direction) {
 }
 // Expose moveAnalysisDate so that inline HTML can invoke it
 window.moveAnalysisDate = moveAnalysisDate;
+
+/**
+ * Move the analysis month offset by the given number of months and refresh the analysis view.
+ * @param {number} direction - positive for next months, negative for previous months
+ */
+function moveAnalysisMonth(direction) {
+    if (typeof direction !== 'number' || direction === 0) return;
+    analysisMonthOffset += direction;
+    updateAnalysisForMonth();
+}
+window.moveAnalysisMonth = moveAnalysisMonth;
 
 /**
  * Shift the history date by the given number of days and refresh the history view.
@@ -993,6 +1187,8 @@ window.moveHistoryDate = moveHistoryDate;
  * @param {Date} date The date to analyse
  */
 function updateAnalysisForDate(date) {
+    // Preserve scroll position to avoid unwanted viewport jumps when updating analysis
+    const _prevScrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
     if (!(date instanceof Date)) return;
     // Compute transactions for the given date
     const filteredTransactions = salesData.filter(t => {
@@ -1067,6 +1263,103 @@ function updateAnalysisForDate(date) {
     }
     // Ensure navigation controls are visible
     toggleAnalysisNavigation(true);
+}
+
+/**
+ * Update analysis metrics for the currently selected month based on analysisMonthOffset.
+ * This shows totals for the month (year-month) computed from salesData.
+ */
+function updateAnalysisForMonth() {
+    // Preserve scroll position
+    const _prevScrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+    const now = new Date();
+    const target = new Date(now.getFullYear(), now.getMonth() + analysisMonthOffset, 1);
+    const startOfMonth = new Date(target.getFullYear(), target.getMonth(), 1);
+    const startOfNext = new Date(target.getFullYear(), target.getMonth() + 1, 1);
+
+    const filteredTransactions = salesData.filter(t => {
+        if (!t.timestamp) return false;
+        const d = new Date(t.timestamp);
+        return d >= startOfMonth && d < startOfNext;
+    });
+
+    // Compute totals similar to filterAnalysis
+    let totalRevenue = 0;
+    let totalModal = 0;
+    let transactionCount = filteredTransactions.length;
+
+    filteredTransactions.forEach(transaction => {
+        if (transaction.total && !isNaN(transaction.total)) {
+            totalRevenue += transaction.total;
+        }
+        if (transaction.items && Array.isArray(transaction.items)) {
+            transaction.items.forEach(item => {
+                let costPrice = 0;
+                if (item.modalPrice && !isNaN(item.modalPrice)) {
+                    costPrice = item.modalPrice;
+                } else {
+                    const product = products.find(p => p.id === item.id);
+                    if (product && product.modalPrice && !isNaN(product.modalPrice)) {
+                        costPrice = product.modalPrice;
+                    }
+                }
+                if (!isNaN(costPrice) && costPrice >= 0 && item.quantity && !isNaN(item.quantity)) {
+                    totalModal += costPrice * item.quantity;
+                }
+            });
+        }
+    });
+
+    const grossProfit = totalRevenue - totalModal;
+    const profitMargin = totalRevenue > 0 ? (grossProfit / totalRevenue * 100) : 0;
+    const roi = totalModal > 0 ? (grossProfit / totalModal * 100) : 0;
+
+    const revEl = document.getElementById('totalRevenue');
+    if (revEl) revEl.textContent = formatCurrency(totalRevenue);
+    const countEl = document.getElementById('revenueCount');
+    if (countEl) countEl.textContent = `${transactionCount} transaksi`;
+    const modalEl = document.getElementById('totalModal');
+    if (modalEl) modalEl.textContent = formatCurrency(totalModal);
+    const profitEl = document.getElementById('grossProfit');
+    if (profitEl) profitEl.textContent = formatCurrency(grossProfit);
+    const marginEl = document.getElementById('profitMargin');
+    if (marginEl) marginEl.textContent = `${profitMargin.toFixed(1)}% margin`;
+    const roiEl = document.getElementById('roi');
+    if (roiEl) roiEl.textContent = `${roi.toFixed(1)}%`;
+
+    // Sedekah
+    const sedekah = Math.max(grossProfit * 0.025, 0);
+    const sedekahEl = document.getElementById('sedekahAmount');
+    if (sedekahEl) sedekahEl.textContent = formatCurrency(sedekah);
+
+    updateProductAnalysisTable(filteredTransactions);
+
+    // Update month label
+    const mLabel = document.getElementById('analysisMonthLabel');
+    if (mLabel) {
+        mLabel.textContent = startOfMonth.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+    }
+
+    // Highlight month filter button
+    ['filterToday', 'filterWeek', 'filterMonth', 'filterAll'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.classList.remove('bg-green-500', 'text-white');
+            btn.classList.add('bg-gray-300', 'text-gray-700');
+        }
+    });
+    const monthBtn = document.getElementById('filterMonth');
+    if (monthBtn) {
+        monthBtn.classList.remove('bg-gray-300', 'text-gray-700');
+        monthBtn.classList.add('bg-green-500', 'text-white');
+    }
+
+    // Show month navigation
+    toggleAnalysisMonthNavigation(true);
+    toggleAnalysisNavigation(false);
+
+    // Restore scroll
+    try { window.scrollTo({ top: _prevScrollY }); } catch (e) { window.scrollTo(0, _prevScrollY); }
 }
 // Expose updateAnalysisForDate if needed externally
 window.updateAnalysisForDate = updateAnalysisForDate;
@@ -1390,6 +1683,22 @@ window.alert = function(message) {
     showAlertLayer(String(message));
 };
 
+// Helper to show the first transaction detail (used by test button with id 'transaksi')
+function showFirstTransactionDetail() {
+    if (!Array.isArray(salesData) || salesData.length === 0) {
+        alert('Belum ada data transaksi untuk ditampilkan.');
+        return;
+    }
+    const tx = salesData[0];
+    try {
+        showReceiptPreview(tx);
+    } catch (e) {
+        console.warn('showFirstTransactionDetail failed', e);
+        alert('Gagal menampilkan detail transaksi. Periksa console untuk pesan error.');
+    }
+}
+window.showFirstTransactionDetail = showFirstTransactionDetail;
+
 // -----------------------------------------------------------------------------
 // Barcode scan result post‑processing helpers
 //
@@ -1483,7 +1792,7 @@ function processScannedCode(rawCode) {
 // redeploy your Apps Script as a web app whenever this URL changes.
 // Updated Apps Script URL provided by the user (latest deployment). This URL is used for all
 // communication between the POS application and Google Sheets (importing/exporting data and login).
-const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby0sIYymZUVJsCDli6jpehKEImLN40hG8h4j6NDK3XrYLtJhqL1lNP6hQ6YHBXobJ8/exec';
+const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz9UwktV8yA2luS_zO3ceJg5o4-goS-l6LzLvGmsyC7Z-3tf3k7C3sK-0dxqku0270X/exec';
 
 
         // Global state for products tab view mode
@@ -1540,6 +1849,68 @@ let globalScannerEnabled = true;
 // same list without re-fetching or re-filtering.  When a search filter is
 // applied, this list is replaced with the filtered results.
 let currentTableList = [];
+
+// Bulk selection state for products (used by table and list views)
+const productBulkSelected = new Set();
+
+function refreshBulkToolbar() {
+    const countEl = document.getElementById('bulkSelectedCount');
+    const exportBtn = document.querySelector('button[data-action="bulk-export"]');
+    const deleteBtn = document.querySelector('button[data-action="bulk-delete"]');
+    const selectAllEl = document.getElementById('productSelectAll');
+    const count = productBulkSelected.size;
+    if (countEl) countEl.textContent = `${count} dipilih`;
+    if (exportBtn) exportBtn.disabled = count === 0;
+    if (deleteBtn) deleteBtn.disabled = count === 0;
+    if (selectAllEl) selectAllEl.checked = (count > 0 && currentTableList.length > 0 && currentTableList.every(p => productBulkSelected.has(String(p.id))));
+}
+
+function exportSelectedProductsCSV() {
+    if (productBulkSelected.size === 0) return alert('Tidak ada produk terpilih untuk diekspor.');
+    const selected = [...productBulkSelected].map(id => products.find(p => String(p.id) === String(id))).filter(Boolean);
+    if (selected.length === 0) return alert('Produk terpilih tidak ditemukan.');
+    const headers = ['id','name','price','modalPrice','stock','barcode'];
+    const rows = selected.map(p => headers.map(h => `"${String(p[h] ?? '')}"`).join(','));
+    const csv = [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `products_export_${Date.now()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function bulkDeleteSelected() {
+    if (productBulkSelected.size === 0) return alert('Tidak ada produk terpilih untuk dihapus.');
+    const selectedIds = [...productBulkSelected];
+    const names = selectedIds.map(id => (products.find(p => String(p.id) === String(id)) || {}).name).filter(Boolean);
+    const confirmMessage = `Yakin ingin menghapus ${selectedIds.length} produk terpilih?\n\n${names.slice(0,5).join(', ')}${names.length>5? '...':''}`;
+    showConfirmLayer(confirmMessage, function(confirmed){
+        if (!confirmed) return;
+        // Remove each product by id
+        selectedIds.forEach(id => {
+            const idx = products.findIndex(p => String(p.id) === String(id));
+            if (idx !== -1) {
+                const removed = products.splice(idx,1)[0];
+                try {
+                    sendDeltaToGoogleSheets('delete','products', removed.id);
+                } catch (e) { console.warn('sync delete failed', e); }
+            }
+            productBulkSelected.delete(id);
+        });
+        saveData(true);
+        // Re-render current view
+        const sortedList = [...products].sort((a,b)=>b.id-a.id);
+        if (productViewMode === 'table') displayProductsTable(sortedList);
+        else if (productViewMode === 'list') displayProductsList(sortedList);
+        else displayProductsGrid(sortedList);
+        displayScannerProductTable();
+        alert(`${selectedIds.length} produk berhasil dihapus.`);
+    });
+}
 
 // Stores the sort direction for each sortable column.  The value toggles
 // between 'asc' and 'desc' when a header is clicked.  Default values set
@@ -1617,6 +1988,11 @@ function sortTableBy(column) {
 // scanner introduces slight delays.  In production a lower value (e.g. 500ms)
 // may be preferable.
 const BARCODE_SCAN_DURATION_THRESHOLD = 1000;
+// Enable verbose scan debugging when true. Set to true only for diagnostics
+// (prints timestamps, keystrokes and buffer state to the console).
+// Debug dimatikan untuk penggunaan normal — ubah ke true hanya saat
+// mendiagnosis masalah pemindaian.
+const SCAN_DEBUG = false;
 
 /**
  * Initialize the global barcode scanner listener.  This attaches a keydown
@@ -1653,6 +2029,23 @@ function initGlobalBarcodeScanner() {
         }
         const key = event.key;
         const now = Date.now();
+        if (typeof SCAN_DEBUG !== 'undefined' && SCAN_DEBUG) {
+            try {
+                const tgt = target && target.id ? `${target.tagName}#${target.id}` : (target && target.tagName ? target.tagName : 'unknown');
+                console.debug(`[SCAN-GLOBAL][ts=${now}] key='${key}' target='${tgt}'`);
+            } catch (e) {
+                console.debug('[SCAN-GLOBAL] debug error', e);
+            }
+        }
+        // Some scanners emit modifier keys (e.g. 'Shift') as separate key events.
+        // Treat common raw modifier key presses as noise for scanning and ignore
+        // them rather than clearing the buffer. This prevents scans from being
+        // truncated when the device sends an explicit Shift event for uppercase
+        // characters.
+        if (key === 'Shift' || key === 'CapsLock' || key === 'AltGraph') {
+            if (typeof SCAN_DEBUG !== 'undefined' && SCAN_DEBUG) console.debug(`[SCAN-GLOBAL][ts=${now}] ignoring modifier key='${key}'`);
+            return;
+        }
         // Reset the buffer if a long pause has occurred
         if (scanStartTime && now - scanStartTime > BARCODE_SCAN_DURATION_THRESHOLD) {
             scanBuffer = '';
@@ -1679,13 +2072,19 @@ function initGlobalBarcodeScanner() {
             scanStartTime = null;
             return;
         }
-        // Only accept single alphanumeric characters as part of the barcode
-        if (key && key.length === 1 && /^[A-Za-z0-9]$/.test(key)) {
-            if (!scanStartTime) {
-                scanStartTime = now;
+        // Accept single printable characters (letters, digits, punctuation, spaces).
+        // Many barcode formats include hyphens, spaces or other symbols; treating
+        // any printable character (ASCII 32-126) as part of the scan buffer
+        // avoids truncation when scanners emit those characters.
+        if (key && key.length === 1) {
+            const code = key.charCodeAt(0);
+            if (code >= 32 && code <= 126) {
+                if (!scanStartTime) {
+                    scanStartTime = now;
+                }
+                scanBuffer += key;
+                return;
             }
-            scanBuffer += key;
-            return;
         }
         // Any other key resets the buffer
         scanBuffer = '';
@@ -1797,11 +2196,245 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Perbarui tampilan tombol toggle scan berdasarkan status awal.  Ini memastikan
     // pengguna melihat status ON/OFF yang benar setelah memuat halaman.
     updateScanToggleButton();
+    // If global scanner is enabled by default, start focusing the hidden capture
+    // input so hardware scanners send keystrokes to it immediately.
+    if (globalScannerEnabled) {
+        startScanCapture();
+    }
+
+    // If we're on a small screen, apply any previously selected mobile theme
+    try {
+        if (window.innerWidth <= 640) {
+            const savedMobile = localStorage.getItem('mobileThemeKey');
+            if (savedMobile) {
+                applyMobileTheme(savedMobile);
+            }
+        } else {
+            // Ensure no mobile theme is active on desktop
+            const existingMobile = document.getElementById('activeMobileTheme');
+            if (existingMobile && existingMobile.parentNode) existingMobile.parentNode.removeChild(existingMobile);
+        }
+    } catch (e) {
+        // ignore errors reading storage
+    }
 
     // Insert history date navigation controls into the History tab.  The navigation
     // controls allow moving to previous and next days when viewing transaction history.
     // They are added dynamically here so that the HTML does not need to be manually edited.
     insertHistoryNavigation();
+    // Debug helper: attach a temporary click listener to the history container so
+    // we can confirm clicks are being received. This is safe to leave; remove
+    // or comment out after debugging.
+    try {
+        const histCont = document.getElementById('transactionHistory');
+        if (histCont && !histCont._debugListenerAttached) {
+                // Simple capture-phase handler that directly opens a transaction's
+                // detail when any element within the row (TD, BUTTON, etc.) is clicked.
+                // Using capture ensures this runs before the document-level delegation
+                // and can short-circuit it for history rows.
+                histCont.addEventListener('click', function(ev) {
+                    try {
+                        // Look for an element carrying a data-txid attribute (td, button, or tr)
+                        const elWithTx = (ev.target && ev.target.closest) ? (ev.target.closest('[data-txid]') || ev.target.closest('tr[data-txid]')) : null;
+                        if (elWithTx) {
+                            const txId = elWithTx.getAttribute('data-txid') || (elWithTx.dataset && elWithTx.dataset.txid);
+                            if (txId) {
+                                const tx = (Array.isArray(salesData) ? salesData.find(t => String(t.id) === String(txId)) : null);
+                                if (tx) {
+                                    // opening tx-detail for txId (capture handler)
+                                    try { showReceiptPreview(tx); } catch (e) { console.warn('showReceiptPreview failed in hist-capture', e); }
+                                    // Prevent the event from bubbling to the document delegation
+                                    ev.stopPropagation();
+                                    ev.preventDefault();
+                                    return;
+                                }
+                            }
+                        }
+                        // debug: click received on history container
+                    } catch (e) {
+                        /* ignore */
+                    }
+                }, true);
+                histCont._debugListenerAttached = true;
+        }
+    } catch (e) {
+        console.warn('Failed to attach history debug listener:', e);
+    }
+    // Compute header offset so sticky Total Bayar sits below the header
+    try {
+        computeHeaderOffset();
+        // Recompute shortly after load to account for fonts or images that may affect header height
+        setTimeout(computeHeaderOffset, 150);
+    } catch (e) {
+        // ignore
+    }
+
+    // Attach delegated click handlers for product actions (add/edit) to avoid
+    // inline onclick strings and quoting issues when product names contain quotes.
+    try {
+        // Attach a single document-level delegation so buttons rendered in
+        // multiple containers (produk grid, scanner table, saved list) are
+        // handled consistently. Use a flag on document to avoid duplicate
+        // attachment when this block runs multiple times.
+        if (!document._productDelegationAttached) {
+            document.addEventListener('click', function(ev) {
+                try {
+                    // Debug: log what closest('[data-action]') returns for the click target
+                    // debug: delegation check removed for production
+                    // Allow delegation from any element that has a data-action attribute (not just buttons)
+                    const btn = ev.target.closest && ev.target.closest('[data-action]');
+                    if (!btn) {
+                        // Fallback: if click is inside the transaction history table, try to find
+                        // a parent <tr> with a data-txid attribute and open its detail.
+                        try {
+                            const tr = ev.target.closest && ev.target.closest('tr');
+                            if (tr) {
+                                const txIdAttr = tr.getAttribute && (tr.getAttribute('data-txid') || tr.dataset && tr.dataset.txid);
+                                if (txIdAttr) {
+                                    const tx = (Array.isArray(salesData) ? salesData.find(t => String(t.id) === String(txIdAttr)) : null);
+                                    if (tx) {
+                                        try { showReceiptPreview(tx); } catch (e) { console.warn('showReceiptPreview failed in fallback', e); }
+                                        ev.preventDefault();
+                                        return;
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            // ignore fallback errors
+                        }
+                        return;
+                    }
+                    const action = btn.getAttribute('data-action');
+                    // data-action is required; data-id is optional for many actions
+                    if (!action) return;
+                    const idStr = btn.getAttribute('data-id');
+                    // Some actions use numeric IDs, others (service items) may use string IDs.
+                    // If data-id is missing, keep `id` as null and only use it where applicable.
+                    const id = (idStr === null || idStr === undefined) ? null : (isNaN(Number(idStr)) ? idStr : parseInt(idStr, 10));
+                    // Handle product-related actions first
+                    if (action === 'add' || action === 'edit' || action === 'quickAdd') {
+                        const product = (Array.isArray(products) ? products.find(p => Number(p.id) === Number(id)) : null);
+                        if (!product) return;
+                        if (action === 'add') {
+                            if (product.stock === 0) {
+                                alert('Produk "' + product.name + '" stok habis!');
+                                return;
+                            }
+                            addToCart({ id: product.id, name: product.name, price: product.price, stock: product.stock });
+                        } else if (action === 'edit') {
+                            editProduct(product.id);
+                        } else if (action === 'quickAdd') {
+                            openAddProductModalPrefilled(product.id);
+                        }
+                        return;
+                    }
+                    // Cart related actions (qty changes and remove)
+                    if (action === 'qty-decrease') {
+                        // id is numeric product id
+                        updateQuantity(Number(id), -1);
+                        return;
+                    }
+                    if (action === 'qty-increase') {
+                        updateQuantity(Number(id), 1);
+                        return;
+                    }
+                    if (action === 'cart-remove') {
+                        removeFromCart(id);
+                        return;
+                    }
+                    // Hold actions (resume / delete held transaction)
+                    if (action === 'hold-resume') {
+                        // id represents the hold index
+                        resumeHold(Number(id));
+                        return;
+                    }
+                    if (action === 'hold-delete') {
+                        deleteHold(Number(id));
+                        return;
+                    }
+                    // Suggestion selection
+                    if (action === 'select-suggestion') {
+                        const prod = (Array.isArray(products) ? products.find(p => Number(p.id) === Number(id)) : null);
+                        if (!prod) return;
+                        if (prod.stock === 0) {
+                            alert('Produk "' + prod.name + '" stok habis!');
+                            return;
+                        }
+                        addToCart({ id: prod.id, name: prod.name, price: prod.price, stock: prod.stock });
+                        // hide suggestions after selection
+                        hideProductSuggestions();
+                        return;
+                    }
+                    // History navigation
+                    if (action === 'history-move') {
+                        const dir = parseInt(btn.getAttribute('data-dir'), 10) || 0;
+                        if (dir !== 0) moveHistoryDate(dir);
+                        return;
+                    }
+                    // Table header sort
+                    if (action === 'sort') {
+                        const key = btn.getAttribute('data-key');
+                        if (key) sortTableBy(key);
+                        return;
+                    }
+                    // Bulk actions (export / delete selected)
+                    if (action === 'bulk-export') {
+                        exportSelectedProductsCSV();
+                        return;
+                    }
+                    if (action === 'bulk-delete') {
+                        bulkDeleteSelected();
+                        return;
+                    }
+                    // Print actions for transactions (uses data-txid to avoid embedding JSON in attributes)
+                    if (action === 'print-thermal' || action === 'print-debt') {
+                        const txId = btn.getAttribute('data-txid');
+                        if (!txId) return;
+                        const tx = (Array.isArray(salesData) ? salesData.find(t => String(t.id) === String(txId)) : null);
+                        if (!tx) {
+                            console.warn('Transaction not found for id', txId);
+                            return;
+                        }
+                        if (action === 'print-thermal') {
+                            try { printThermalReceipt(tx); } catch (e) { console.warn('printThermalReceipt failed', e); }
+                        } else {
+                            try { printDebtPaymentReceipt(tx); } catch (e) { console.warn('printDebtPaymentReceipt failed', e); }
+                        }
+                        return;
+                    }
+
+                    // Show transaction detail (uses existing receipt preview)
+                    if (action === 'tx-detail') {
+                        const txId = btn.getAttribute('data-txid');
+                        // tx-detail clicked, proceed to lookup and preview
+                        if (!txId) {
+                            alert('ID transaksi tidak ditemukan pada elemen.');
+                            return;
+                        }
+                        const tx = (Array.isArray(salesData) ? salesData.find(t => String(t.id) === String(txId)) : null);
+                        if (!tx) {
+                            console.warn('Transaction not found for id', txId);
+                            alert('Transaksi tidak ditemukan (mungkin data kosong).');
+                            return;
+                        }
+                        try {
+                            // Show the receipt/transaction detail modal
+                            showReceiptPreview(tx);
+                        } catch (e) {
+                            console.warn('showReceiptPreview failed', e);
+                            alert('Gagal menampilkan detail transaksi. Lihat console untuk detail.');
+                        }
+                        return;
+                    }
+                } catch (err) {
+                    console.warn('product delegation handler failed', err);
+                }
+            });
+            document._productDelegationAttached = true;
+        }
+    } catch (err) {
+        console.warn('Failed to attach product delegation:', err);
+    }
 
     /**
      * Global event delegation for search inputs.
@@ -1828,6 +2461,31 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (target.id === 'productSearchInput') {
             const term = target.value.trim();
             searchProducts(term);
+        }
+        // Bulk select checkbox in product table/list
+        if (target.dataset && target.dataset.action === 'bulk-select') {
+            const id = target.getAttribute('data-id');
+            if (!id) return;
+            if (target.checked) productBulkSelected.add(String(id)); else productBulkSelected.delete(String(id));
+            refreshBulkToolbar();
+            return;
+        }
+        // Select-all checkbox toggles selection of all currently visible table/list products
+        if ((target.id === 'productSelectAll') || (target.dataset && target.dataset.action === 'bulk-select-all')) {
+            const checked = !!target.checked;
+            if (checked) {
+                // add all ids from currentTableList (if available) otherwise from products
+                const source = (Array.isArray(currentTableList) && currentTableList.length>0) ? currentTableList : products;
+                source.forEach(p => productBulkSelected.add(String(p.id)));
+            } else {
+                // remove all visible ids
+                const source = (Array.isArray(currentTableList) && currentTableList.length>0) ? currentTableList : products;
+                source.forEach(p => productBulkSelected.delete(String(p.id)));
+            }
+            // update checkbox states in DOM to match
+            document.querySelectorAll('input[data-action="bulk-select"]').forEach(cb => { cb.checked = checked; });
+            refreshBulkToolbar();
+            return;
         }
     });
 
@@ -1888,11 +2546,33 @@ function attachSearchListeners() {
     // Products tab search input: attach its listener only once
     const productSearchEl = document.getElementById('productSearchInput');
     if (productSearchEl && !productSearchEl._hasProductSearchListener) {
+        // Use a debounced handler to reduce work while the user is typing
+        if (!window._productSearchDebounce) {
+            window._productSearchDebounce = debounce(function(value) {
+                searchProducts(value.trim());
+            }, 300);
+        }
         productSearchEl.addEventListener('input', function(e) {
-            searchProducts(e.target.value.trim());
+            window._productSearchDebounce(e.target.value || '');
         });
         productSearchEl._hasProductSearchListener = true;
     }
+}
+
+// Lightweight debounce helper used by search inputs. Returns a function that
+// delays invoking `fn` until `wait` milliseconds have elapsed since the last
+// call.  The debounced function preserves the latest arguments.
+function debounce(fn, wait) {
+    let t = null;
+    return function() {
+        const args = arguments;
+        const ctx = this;
+        if (t) clearTimeout(t);
+        t = setTimeout(function() {
+            t = null;
+            try { fn.apply(ctx, args); } catch (err) { console.warn('debounced fn error', err); }
+        }, wait);
+    };
 }
 
         // Tab switching
@@ -2207,8 +2887,8 @@ function attachSearchListeners() {
                             <div class="text-xs text-gray-600">${formatted} • ${itemsCount} item</div>
                         </div>
                         <div class="flex space-x-2">
-                            <button onclick="resumeHold(${idx})" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-xs font-semibold">Lanjut</button>
-                            <button onclick="deleteHold(${idx})" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs font-semibold">Hapus</button>
+                            <button data-action="hold-resume" data-id="${idx}" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-xs font-semibold">Lanjut</button>
+                            <button data-action="hold-delete" data-id="${idx}" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-xs font-semibold">Hapus</button>
                         </div>
                     </div>
                 `;
@@ -2246,8 +2926,8 @@ function attachSearchListeners() {
                             <div class="text-xs text-gray-500">${itemsCount} item${itemsCount > 1 ? 's' : ''}</div>
                         </div>
                         <div class="flex space-x-1">
-                            <button onclick="resumeHold(${idx})" class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs">Lanjut</button>
-                            <button onclick="deleteHold(${idx})" class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
+                            <button data-action="hold-resume" data-id="${idx}" class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs">Lanjut</button>
+                            <button data-action="hold-delete" data-id="${idx}" class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs">Hapus</button>
                         </div>
                     </div>
                 `;
@@ -2335,7 +3015,7 @@ function attachSearchListeners() {
                 attachModalKeyHandlers(modal, saveHoldName, closeHoldNameModal);
                 // Focus the input after the modal is displayed
                 setTimeout(() => {
-                    if (input) input.focus();
+                    if (input) safeFocus(input);
                 }, 100);
             }
         }
@@ -2716,9 +3396,8 @@ function removeDuplicateProducts() {
                       highlighted via keyboard navigation the row will receive an even
                       darker blue background (bg-blue-700) applied in highlightSuggestionAtIndex().
                     -->
-                    <div class="p-3 hover:bg-blue-600 hover:text-white group cursor-pointer border-b border-gray-100 last:border-b-0 ${product.stock === 0 ? 'opacity-50' : ''}"
-                         data-product-id="${product.id}"
-                         onclick="selectProductFromSuggestion(${product.id})">
+                <div class="p-3 hover:bg-blue-600 hover:text-white group cursor-pointer border-b border-gray-100 last:border-b-0 ${product.stock === 0 ? 'opacity-50' : ''}"
+                    data-action="select-suggestion" data-id="${product.id}" data-product-id="${product.id}">
                         <div class="flex justify-between items-center">
                             <div class="flex-1">
                                 <div class="font-semibold text-gray-100 text-sm truncate group-hover:text-white">
@@ -2830,7 +3509,7 @@ function removeDuplicateProducts() {
                 hideProductSuggestions();
                 setTimeout(() => {
                     barcodeInput.value = '';
-                    barcodeInput.focus();
+                    safeFocus(barcodeInput);
                 }, 300);
             }
         }
@@ -2966,7 +3645,7 @@ function removeDuplicateProducts() {
             // Attach keyboard shortcuts: Enter adds service to cart, Esc cancels
             attachModalKeyHandlers(modalEl, addServiceToCart, closeServiceProductModal, ['serviceProductPrice','serviceProductModalPrice','serviceProductDescription','serviceProductQuantity']);
             
-            setTimeout(() => document.getElementById('serviceProductPrice').focus(), 100);
+            setTimeout(() => safeFocus(document.getElementById('serviceProductPrice')), 100);
         }
 
         function closeServiceProductModal() {
@@ -2981,7 +3660,7 @@ function removeDuplicateProducts() {
         function handleServicePriceEnter(event) {
             if (event.key === 'Enter') {
                 event.preventDefault();
-                document.getElementById('serviceProductDescription').focus();
+                safeFocus(document.getElementById('serviceProductDescription'));
             }
         }
 
@@ -3047,8 +3726,11 @@ function removeDuplicateProducts() {
             cartItems.innerHTML = cart.map(item => {
                 const isServiceItem = item.isService;
                 const itemId = item.id;
-                
-                return `
+                const isMobileLayout = window.innerWidth <= 640; // mobile breakpoint
+
+                // Desktop: original layout (discount below product name)
+                if (!isMobileLayout) {
+                    return `
                     <div class="bg-gray-50 p-2 rounded-lg fade-in ${isServiceItem ? 'border-l-4 border-purple-500' : ''}">
                         <div class="flex justify-between items-center">
                             <div class="flex-1">
@@ -3064,7 +3746,6 @@ function removeDuplicateProducts() {
                                 <!-- Per‑item discount controls: allow percentage or nominal discount per product -->
                                 <div class="mt-1 flex items-center space-x-1 text-xs text-gray-600">
                                     <span>Diskon:</span>
-                                    <!-- Place the discount type selector (Rp/% dropdown) before the numeric input to align with scanner table ordering -->
                                     <select class="px-1 py-0 border rounded text-xs"
                                             onchange="updateItemDiscountType('${itemId}', this.value)">
                                         <option value="percent" ${item.discountType === 'percent' ? 'selected' : ''}>%</option>
@@ -3079,17 +3760,69 @@ function removeDuplicateProducts() {
                             <div class="flex items-center space-x-1 ml-2">
                                 <div class="font-bold ${isServiceItem ? 'text-purple-600' : item.isWholesale ? 'text-blue-600' : 'text-green-600'} text-sm">${formatCurrency(item.price * item.quantity)}</div>
                                 <div class="flex items-center space-x-1">
-                                    ${isServiceItem ? `
-                                        <button onclick="removeFromCart('${itemId}')" class="bg-red-500 hover:bg-red-600 text-white w-8 h-8 rounded text-sm">×</button>
+                                        ${isServiceItem ? `
+                                        <button data-action="cart-remove" data-id="${itemId}" class="bg-red-500 hover:bg-red-600 text-white w-8 h-8 rounded text-sm">×</button>
                                     ` : `
-                                        <button onclick="updateQuantity(${item.id}, -1)" class="bg-red-500 hover:bg-red-600 text-white w-8 h-8 rounded text-sm">-</button>
+                                        <button data-action="qty-decrease" data-id="${item.id}" class="bg-red-500 hover:bg-red-600 text-white w-8 h-8 rounded text-sm">-</button>
                                         <input type="number" value="${item.quantity}" min="1" max="999" 
                                                class="w-12 px-2 py-1 border rounded text-base text-center" 
                                                onchange="setQuantity(${item.id}, this.value)"
                                                onkeypress="handleQuantityKeypress(event, ${item.id})"
                                                onclick="this.select()">
-                                        <button onclick="updateQuantity(${item.id}, 1)" class="bg-green-500 hover:bg-green-600 text-white w-8 h-8 rounded text-sm">+</button>
-                                        <button onclick="removeFromCart(${item.id})" class="bg-gray-500 hover:bg-gray-600 text-white w-8 h-8 rounded text-sm">×</button>
+                                        <button data-action="qty-increase" data-id="${item.id}" class="bg-green-500 hover:bg-green-600 text-white w-8 h-8 rounded text-sm">+</button>
+                                        <button data-action="cart-remove" data-id="${item.id}" class="bg-gray-500 hover:bg-gray-600 text-white w-8 h-8 rounded text-sm">×</button>
+                                    `}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                }
+
+                // Mobile: compact layout with discount controls to the right of name
+                return `
+                    <div class="bg-gray-50 p-2 rounded-lg fade-in ${isServiceItem ? 'border-l-4 border-purple-500' : ''}">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <div class="flex justify-between items-start">
+                                    <div class="font-semibold text-sm text-gray-800 truncate pr-2">
+                                        ${item.name}
+                                        ${isServiceItem ? '<span class="bg-purple-500 text-white px-1 rounded text-xs ml-1">🔧 JASA</span>' : ''}
+                                    </div>
+                                    <div class="ml-2 flex-shrink-0">
+                                        <div class="flex items-center space-x-1 text-xs text-gray-600">
+                                            <select class="px-1 py-0 border rounded text-xs"
+                                                    onchange="updateItemDiscountType('${itemId}', this.value)">
+                                                <option value="percent" ${item.discountType === 'percent' ? 'selected' : ''}>%</option>
+                                                <option value="amount" ${item.discountType === 'amount' ? 'selected' : ''}>Rp</option>
+                                            </select>
+                                            <input type="number" value="${item.discountValue || 0}" min="0"
+                                                   class="w-20 px-1 py-0 border rounded text-right text-xs"
+                                                   onchange="updateItemDiscount('${itemId}', this.value)"
+                                                   onclick="this.select()">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="text-xs text-gray-600 mt-1">
+                                    ${formatCurrency(item.price)} x ${item.quantity}
+                                    ${item.isWholesale ? '<span class="bg-blue-500 text-white px-1 rounded text-xs ml-1">🏪 GROSIR</span>' : ''}
+                                </div>
+                                ${item.description ? `<div class="text-xs text-purple-600 italic mt-1">"${item.description}"</div>` : ''}
+                            </div>
+                            <div class="flex items-center space-x-1 ml-2">
+                                <div class="font-bold ${isServiceItem ? 'text-purple-600' : item.isWholesale ? 'text-blue-600' : 'text-green-600'} text-sm">${formatCurrency(item.price * item.quantity)}</div>
+                                <div class="flex items-center space-x-1">
+                                    ${isServiceItem ? `
+                                        <button data-action="cart-remove" data-id="${itemId}" class="bg-red-500 hover:bg-red-600 text-white w-8 h-8 rounded text-sm">×</button>
+                                    ` : `
+                                        <button data-action="qty-decrease" data-id="${item.id}" class="bg-red-500 hover:bg-red-600 text-white w-8 h-8 rounded text-sm">-</button>
+                                        <input type="number" value="${item.quantity}" min="1" max="999" 
+                                               class="w-12 px-2 py-1 border rounded text-base text-center" 
+                                               onchange="setQuantity(${item.id}, this.value)"
+                                               onkeypress="handleQuantityKeypress(event, ${item.id})"
+                                               onclick="this.select()">
+                                        <button data-action="qty-increase" data-id="${item.id}" class="bg-green-500 hover:bg-green-600 text-white w-8 h-8 rounded text-sm">+</button>
+                                        <button data-action="cart-remove" data-id="${item.id}" class="bg-gray-500 hover:bg-gray-600 text-white w-8 h-8 rounded text-sm">×</button>
                                     `}
                                 </div>
                             </div>
@@ -3349,13 +4082,13 @@ function removeDuplicateProducts() {
                         <td class="px-3 py-3 text-center text-lg font-bold">
                             ${isServiceItem ? '1' : `
                                 <div class="flex items-center justify-center space-x-1">
-                                    <button onclick="updateQuantity(${item.id}, -1)" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded text-sm">-</button>
+                                    <button data-action="qty-decrease" data-id="${item.id}" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded text-sm">-</button>
                                     <input type="number" value="${item.quantity}" min="1" max="999" 
                                            class="w-16 px-2 py-1 border rounded text-base text-center" 
                                            onchange="setQuantity(${item.id}, this.value)"
                                            onkeypress="handleQuantityKeypress(event, ${item.id})"
                                            onclick="this.select()">
-                                    <button onclick="updateQuantity(${item.id}, 1)" class="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded text-sm">+</button>
+                                    <button data-action="qty-increase" data-id="${item.id}" class="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded text-sm">+</button>
                                 </div>
                             `}
                         </td>
@@ -3376,7 +4109,7 @@ function removeDuplicateProducts() {
                         <!-- Display the row total after discount to align with the top total bayar notice -->
                         <td class="px-3 py-3 text-right font-bold text-lg">${formatCurrency(itemTotal)}</td>
                         <td class="px-3 py-3 text-center text-lg">
-                            <button onclick="removeFromCart('${item.id}')" class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm">×</button>
+                            <button data-action="cart-remove" data-id="${item.id}" class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm">×</button>
                         </td>
                     </tr>
                 `;
@@ -3465,7 +4198,7 @@ function removeDuplicateProducts() {
                                 <div class="text-xs text-purple-600 mt-1">UNLIMITED</div>
                             </td>
                             <td class="px-3 py-3 text-center">
-                                <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: 999999})" 
+                                <button data-action="add" data-id="${product.id}" 
                                         class="px-3 py-1 rounded text-xs font-semibold transition-colors bg-purple-500 hover:bg-purple-600 text-white">
                                     ➕ Tambah
                                 </button>
@@ -3503,7 +4236,7 @@ function removeDuplicateProducts() {
                               stockStatus === 'low' ? '<div class="text-xs text-yellow-600 mt-1">MENIPIS</div>' : ''}
                         </td>
                         <td class="px-3 py-3 text-center">
-                            <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: ${product.stock}})" 
+                            <button data-action="add" data-id="${product.id}" 
                                     class="px-3 py-1 rounded text-xs font-semibold transition-colors ${product.stock === 0 ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-green-500 hover:bg-green-600 text-white'}"
                                     ${product.stock === 0 ? 'disabled' : ''}>
                                 ${product.stock === 0 ? '❌ Habis' : '➕ Tambah'}
@@ -3518,12 +4251,13 @@ function removeDuplicateProducts() {
         // Render products in grid layout
         function displayProductsGrid(list) {
             const container = document.getElementById('savedProducts');
-            container.className = 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3';
+            // Mobile-first: 1 column on xs, 2 on sm, 3 on md, 4 on lg
+            container.className = 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 items-start';
             container.innerHTML = list.map(product => {
                 // Service product
                 if (product.isService || product.price === 0) {
                     return `
-                        <div class="border-2 rounded-lg p-3 hover-lift bg-gradient-to-br from-purple-50 to-purple-100 border-purple-300">
+                        <div class="product-card self-start border-2 rounded-lg p-3 hover-lift bg-gradient-to-br from-purple-50 to-purple-100 border-purple-300">
                             <div class="font-semibold text-sm text-gray-800 truncate mb-1">${product.name}</div>
                             <div class="text-xs text-purple-600 font-bold mb-1">🔧 JASA</div>
                             <div class="text-xs text-gray-500 mb-1">Produk Layanan</div>
@@ -3532,14 +4266,15 @@ function removeDuplicateProducts() {
                             </div>
                             <div class="mb-2"></div>
                             <div class="flex space-x-1">
-                                <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: 999999})" 
+                                <button data-action="add" data-id="${product.id}" 
                                         class="flex-1 bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs font-semibold active-press">
                                     ➕
                                 </button>
-                                <button onclick="editProduct(${product.id})" 
+                                <button data-action="edit" data-id="${product.id}" 
                                         class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold active-press">
                                     ✏️
                                 </button>
+                                <button data-action="quickAdd" data-id="${product.id}" class="ml-1 bg-yellow-500 hover:bg-yellow-600 text-white px-2 py-1 rounded text-xs">⚡</button>
                             </div>
                         </div>
                     `;
@@ -3548,7 +4283,7 @@ function removeDuplicateProducts() {
                 const stockStatusInner = product.stock === 0 ? 'critical' : product.stock <= product.minStock ? 'low' : 'ok';
                 const stockClass = stockStatusInner === 'critical' ? 'stock-critical' : stockStatusInner === 'low' ? 'stock-low' : 'stock-ok';
                 return `
-                    <div class="border-2 rounded-lg p-3 hover-lift ${stockClass}">
+                    <div class="product-card self-start border-2 rounded-lg p-3 hover-lift ${stockClass}">
                         <div class="font-semibold text-sm text-gray-800 truncate mb-1">${product.name}</div>
                         <div class="text-xs text-green-600 font-bold mb-1">${formatCurrency(product.price)}</div>
                         ${product.wholesaleMinQty && product.wholesalePrice ? 
@@ -3561,15 +4296,91 @@ function removeDuplicateProducts() {
                         </div>
                         ${product.barcode ? `<div class="text-xs text-gray-400 mb-2">Barcode: ${product.barcode}</div>` : '<div class="mb-2"></div>'}
                         <div class="flex space-x-1">
-                            <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: ${product.stock}})" 
+                            <button data-action="add" data-id="${product.id}" 
                                     class="flex-1 ${product.stock === 0 ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'} text-white px-2 py-1 rounded text-xs font-semibold active-press"
                                     ${product.stock === 0 ? 'disabled' : ''}>
                                 ${product.stock === 0 ? '❌' : '➕'}
                             </button>
-                            <button onclick="editProduct(${product.id})" 
+                            <button data-action="edit" data-id="${product.id}" 
                                     class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold active-press">
                                 ✏️
                             </button>
+                            <button data-action="quickAdd" data-id="${product.id}" class="ml-1 bg-yellow-500 hover:bg-yellow-600 text-white px-2 py-1 rounded text-xs">⚡</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Render products in compact card grid: smaller cards, tighter spacing
+        function displayProductsCompact(list) {
+            const container = document.getElementById('savedProducts');
+            // Compact: slightly tighter breakpoints but still mobile-friendly
+            // Keep 2 columns on very small devices for compact density, 2 on sm and 3 on md
+            // Ensure compact grid children align to the top as well
+            container.className = 'grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-2 items-start';
+            container.innerHTML = list.map(product => {
+                if (product.isService || product.price === 0) {
+                    return `
+                        <div class="product-card p-2 rounded-lg hover-lift bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+                            <div class="font-semibold text-sm text-gray-800 truncate">${product.name}</div>
+                            <div class="text-xs text-purple-600 font-semibold">🔧 JASA</div>
+                            <div class="text-xs text-gray-500">${formatCurrency(product.price || 0)}</div>
+                            <div class="mt-2 flex space-x-1">
+                                <button data-action="add" data-id="${product.id}" class="flex-1 bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs">➕</button>
+                                <button data-action="edit" data-id="${product.id}" class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs">✏️</button>
+                                <button data-action="quickAdd" data-id="${product.id}" class="ml-1 bg-yellow-500 hover:bg-yellow-600 text-white px-2 py-1 rounded text-xs">⚡</button>
+                            </div>
+                        </div>
+                    `;
+                }
+                const stockStatusInner = product.stock === 0 ? 'critical' : product.stock <= product.minStock ? 'low' : 'ok';
+                const stockClass = stockStatusInner === 'critical' ? 'text-red-600' : stockStatusInner === 'low' ? 'text-yellow-600' : 'text-green-600';
+                return `
+                    <div class="product-card self-start p-2 border rounded-lg hover-lift bg-white">
+                        <div class="font-semibold text-sm text-gray-800 truncate">${product.name}</div>
+                        <div class="text-xs text-green-600 font-bold">${formatCurrency(product.price)}</div>
+                        <div class="text-xs text-gray-500 mt-1">Stok: <span class="${stockClass}">${product.stock}</span></div>
+                        <div class="mt-2 flex space-x-1">
+                            <button data-action="add" data-id="${product.id}" class="flex-1 bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs" ${product.stock === 0 ? 'disabled' : ''}>➕</button>
+                            <button data-action="edit" data-id="${product.id}" class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs">✏️</button>
+                            <button data-action="quickAdd" data-id="${product.id}" class="ml-1 bg-yellow-500 hover:bg-yellow-600 text-white px-2 py-1 rounded text-xs">⚡</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Render products in a dense list: minimal padding, compact rows useful for power users
+        function displayProductsDense(list) {
+            const container = document.getElementById('savedProducts');
+            container.className = 'space-y-1';
+            container.innerHTML = list.map(product => {
+                if (product.isService || product.price === 0) {
+                    return `
+                        <div class="p-2 rounded-sm flex justify-between items-center bg-white border-b">
+                            <div class="flex-1">
+                                <div class="font-medium text-sm text-gray-800 truncate">${product.name}</div>
+                                <div class="text-xs text-gray-500">🔧 JASA</div>
+                            </div>
+                            <div class="text-sm text-green-600 font-bold ml-2">JASA</div>
+                            <div class="ml-2 flex space-x-1">
+                                <button data-action="add" data-id="${product.id}" class="bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs">➕</button>
+                            </div>
+                        </div>
+                    `;
+                }
+                const stockClass = product.stock === 0 ? 'text-red-600' : product.stock <= product.minStock ? 'text-yellow-600' : 'text-green-600';
+                return `
+                    <div class="p-2 rounded-sm flex justify-between items-center bg-white border-b">
+                        <div class="flex-1">
+                            <div class="font-medium text-sm text-gray-800 truncate">${product.name}</div>
+                            <div class="text-xs text-gray-500">${formatCurrency(product.modalPrice || 0)}</div>
+                        </div>
+                        <div class="text-sm text-green-600 font-bold ml-2">${formatCurrency(product.price)}</div>
+                        <div class="ml-4 text-xs ${stockClass}">${product.stock}</div>
+                        <div class="ml-2">
+                            <button data-action="add" data-id="${product.id}" class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-xs">➕</button>
                         </div>
                     </div>
                 `;
@@ -3584,13 +4395,28 @@ function removeDuplicateProducts() {
             // mutating the original array passed in.
             currentTableList = Array.isArray(list) ? list.slice() : [];
             container.className = 'overflow-x-auto';
-            let tableHtml = '<table class="w-full text-sm">';
+            // Toolbar for bulk actions
+            const toolbarHtml = `
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center space-x-3">
+                        <label class="text-sm text-gray-700 flex items-center"><input id="productSelectAll" data-action="bulk-select-all" type="checkbox" class="mr-2">Pilih Semua</label>
+                        <div id="bulkSelectedCount" class="text-sm text-gray-600">0 dipilih</div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button data-action="bulk-export" class="px-3 py-1 rounded bg-blue-500 hover:bg-blue-600 text-white text-sm" disabled>Export CSV</button>
+                        <button data-action="bulk-delete" class="px-3 py-1 rounded bg-red-500 hover:bg-red-600 text-white text-sm" disabled>Hapus Terpilih</button>
+                    </div>
+                </div>
+            `;
+
+            let tableHtml = toolbarHtml + '<table class="w-full text-sm">';
             // Build table header with clickable columns for sorting
             tableHtml += '<thead class="bg-gray-100"><tr>' +
-                         '<th class="px-4 py-2 text-left font-semibold text-gray-700 cursor-pointer" onclick="sortTableBy(\'name\')">Nama Produk</th>' +
-                         '<th class="px-4 py-2 text-left font-semibold text-gray-700 cursor-pointer" onclick="sortTableBy(\'price\')">Harga</th>' +
+                         '<th class="px-4 py-2 text-left font-semibold text-gray-700">&nbsp;</th>' +
+                         '<th class="px-4 py-2 text-left font-semibold text-gray-700 cursor-pointer" data-action="sort" data-key="name">Nama Produk</th>' +
+                         '<th class="px-4 py-2 text-left font-semibold text-gray-700 cursor-pointer" data-action="sort" data-key="price">Harga</th>' +
                          '<th class="px-4 py-2 text-left font-semibold text-gray-700">Modal</th>' +
-                         '<th class="px-4 py-2 text-left font-semibold text-gray-700 cursor-pointer" onclick="sortTableBy(\'stock\')">Stok</th>' +
+                         '<th class="px-4 py-2 text-left font-semibold text-gray-700 cursor-pointer" data-action="sort" data-key="stock">Stok</th>' +
                          '<th class="px-4 py-2 text-left font-semibold text-gray-700">Barcode</th>' +
                          '<th class="px-4 py-2 text-center font-semibold text-gray-700">Aksi</th>' +
                          '</tr></thead><tbody>';
@@ -3600,41 +4426,45 @@ function removeDuplicateProducts() {
                 if (product.isService || product.price === 0) {
                     return `
                         <tr class="border-b border-gray-100 hover:bg-purple-50">
+                            <td class="px-4 py-2 text-center"><input data-action="bulk-select" type="checkbox" data-id="${product.id}" ${productBulkSelected.has(String(product.id)) ? 'checked' : ''}></td>
                             <td class="px-4 py-2 font-medium text-gray-800">${product.name}<div class="text-xs text-purple-600 font-semibold">🔧 JASA</div></td>
                             <td class="px-4 py-2 text-purple-600 font-bold">JASA</td>
                             <td class="px-4 py-2 text-gray-500">-</td>
                             <td class="px-4 py-2 ${stockColor}">∞</td>
                             <td class="px-4 py-2 text-gray-400">-</td>
                             <td class="px-4 py-2 text-center">
-                                <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: 999999})" 
+                                <button data-action="add" data-id="${product.id}" 
                                         class="px-2 py-1 rounded text-xs font-semibold transition-colors bg-purple-500 hover:bg-purple-600 text-white">
                                     ➕
                                 </button>
-                                <button onclick="editProduct(${product.id})" 
+                                <button data-action="edit" data-id="${product.id}" 
                                         class="ml-1 px-2 py-1 rounded text-xs font-semibold transition-colors bg-blue-500 hover:bg-blue-600 text-white">
                                     ✏️
                                 </button>
+                                <button data-action="quickAdd" data-id="${product.id}" class="ml-1 px-2 py-1 rounded text-xs font-semibold bg-yellow-500 hover:bg-yellow-600 text-white">⚡</button>
                             </td>
                         </tr>
                     `;
                 }
                 return `
                     <tr class="border-b border-gray-100 hover:bg-blue-50">
+                        <td class="px-4 py-2 text-center"><input data-action="bulk-select" type="checkbox" data-id="${product.id}" ${productBulkSelected.has(String(product.id)) ? 'checked' : ''}></td>
                         <td class="px-4 py-2 font-medium text-gray-800">${product.name}</td>
                         <td class="px-4 py-2 text-green-600 font-bold">${formatCurrency(product.price)}</td>
                         <td class="px-4 py-2 text-gray-500">${formatCurrency(product.modalPrice || 0)}</td>
                         <td class="px-4 py-2 ${stockColor}">${product.stock}</td>
                         <td class="px-4 py-2 text-gray-400">${product.barcode || '-'}</td>
                         <td class="px-4 py-2 text-center">
-                            <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: ${product.stock}})" 
+                            <button data-action="add" data-id="${product.id}" 
                                     class="px-2 py-1 rounded text-xs font-semibold transition-colors ${product.stock === 0 ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'} text-white"
                                     ${product.stock === 0 ? 'disabled' : ''}>
                                 ${product.stock === 0 ? '❌' : '➕'}
                             </button>
-                            <button onclick="editProduct(${product.id})" 
+                            <button data-action="edit" data-id="${product.id}" 
                                     class="ml-1 px-2 py-1 rounded text-xs font-semibold transition-colors bg-blue-500 hover:bg-blue-600 text-white">
                                 ✏️
                             </button>
+                            <button data-action="quickAdd" data-id="${product.id}" class="ml-1 px-2 py-1 rounded text-xs font-semibold bg-yellow-500 hover:bg-yellow-600 text-white">⚡</button>
                         </td>
                     </tr>
                 `;
@@ -3647,24 +4477,38 @@ function removeDuplicateProducts() {
         function displayProductsList(list) {
             const container = document.getElementById('savedProducts');
             container.className = 'space-y-3';
-            container.innerHTML = list.map(product => {
+            // Toolbar for bulk actions in list view
+            const toolbar = `
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center space-x-3">
+                        <label class="text-sm text-gray-700 flex items-center"><input id="productSelectAll" data-action="bulk-select-all" type="checkbox" class="mr-2">Pilih Semua</label>
+                        <div id="bulkSelectedCount" class="text-sm text-gray-600">0 dipilih</div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button data-action="bulk-export" class="px-3 py-1 rounded bg-blue-500 hover:bg-blue-600 text-white text-sm" disabled>Export CSV</button>
+                        <button data-action="bulk-delete" class="px-3 py-1 rounded bg-red-500 hover:bg-red-600 text-white text-sm" disabled>Hapus Terpilih</button>
+                    </div>
+                </div>
+            `;
+            container.innerHTML = toolbar + list.map(product => {
                 const stockStatus = product.stock === 0 ? 'critical' : product.stock <= product.minStock ? 'low' : 'ok';
                 const stockColorClass = stockStatus === 'critical' ? 'text-red-600' : stockStatus === 'low' ? 'text-yellow-600' : 'text-green-600';
                 if (product.isService || product.price === 0) {
                     return `
                         <div class="border-2 rounded-lg p-3 hover-lift bg-gradient-to-br from-purple-50 to-purple-100 border-purple-300 flex justify-between items-start">
-                            <div>
+                            <div class="mr-3"><input data-action="bulk-select" type="checkbox" data-id="${product.id}" ${productBulkSelected.has(String(product.id)) ? 'checked' : ''}></div>
+                            <div class="flex-1">
                                 <div class="font-semibold text-sm text-gray-800 mb-1">${product.name}</div>
                                 <div class="text-xs text-purple-600 font-bold mb-1">🔧 JASA</div>
                                 <div class="text-xs text-gray-500 mb-1">Produk Layanan</div>
                                 <div class="text-xs font-semibold mb-1 text-purple-600">Stok: Unlimited</div>
                             </div>
                             <div class="flex space-x-1 mt-1 ml-2">
-                                <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: 999999})" 
+                                <button data-action="add" data-id="${product.id}" 
                                         class="bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs font-semibold active-press">
                                     ➕
                                 </button>
-                                <button onclick="editProduct(${product.id})" 
+                                <button data-action="edit" data-id="${product.id}" 
                                         class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold active-press">
                                     ✏️
                                 </button>
@@ -3675,6 +4519,7 @@ function removeDuplicateProducts() {
                 const wholesaleInfo = (product.wholesaleMinQty && product.wholesalePrice) ? `<div class="text-xs text-blue-600 font-semibold mb-1">🏪 ${formatCurrency(product.wholesalePrice)} (${product.wholesaleMinQty}+ pcs)</div>` : '';
                 return `
                     <div class="border-2 rounded-lg p-3 hover-lift ${stockStatus === 'critical' ? 'bg-red-50' : stockStatus === 'low' ? 'bg-yellow-50' : 'bg-gray-50'} flex justify-between items-start">
+                        <div class="mr-3"><input data-action="bulk-select" type="checkbox" data-id="${product.id}" ${productBulkSelected.has(String(product.id)) ? 'checked' : ''}></div>
                         <div>
                             <div class="font-semibold text-sm text-gray-800 mb-1">${product.name}</div>
                             <div class="text-xs text-green-600 font-bold mb-1">${formatCurrency(product.price)}</div>
@@ -3683,13 +4528,13 @@ function removeDuplicateProducts() {
                             <div class="text-xs font-semibold mb-1 ${stockColorClass}">Stok: ${product.stock}</div>
                             ${product.barcode ? `<div class="text-xs text-gray-400 mb-1">Barcode: ${product.barcode}</div>` : ''}
                         </div>
-                        <div class="flex space-x-1 mt-1 ml-2">
-                            <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: ${product.stock}})" 
+                            <div class="flex space-x-1 mt-1 ml-2">
+                            <button data-action="add" data-id="${product.id}" 
                                     class="${product.stock === 0 ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'} text-white px-2 py-1 rounded text-xs font-semibold active-press"
                                     ${product.stock === 0 ? 'disabled' : ''}>
                                 ${product.stock === 0 ? '❌' : '➕'}
                             </button>
-                            <button onclick="editProduct(${product.id})" 
+                            <button data-action="edit" data-id="${product.id}" 
                                     class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold active-press">
                                 ✏️
                             </button>
@@ -3701,7 +4546,7 @@ function removeDuplicateProducts() {
 
         // Update the view mode buttons to reflect the current selection
         function updateViewButtons() {
-            const modes = ['grid', 'table', 'list'];
+                    const modes = ['grid', 'table', 'list', 'compact', 'dense'];
             modes.forEach(mode => {
                 const buttonId = 'view' + mode.charAt(0).toUpperCase() + mode.slice(1) + 'Button';
                 const btn = document.getElementById(buttonId);
@@ -3734,7 +4579,12 @@ function removeDuplicateProducts() {
                     displayProductsTable(sorted);
                 } else if (mode === 'list') {
                     displayProductsList(sorted);
+                } else if (mode === 'compact') {
+                    displayProductsCompact(sorted);
+                } else if (mode === 'dense') {
+                    displayProductsDense(sorted);
                 } else {
+                    // default to grid
                     displayProductsGrid(sorted);
                 }
             }
@@ -3742,75 +4592,27 @@ function removeDuplicateProducts() {
         }
 
         function displaySavedProducts() {
+            // Centralize rendering by delegating to the current view renderer.
+            // This avoids duplicated templates and ensures the data-action based
+            // event delegation continues to work consistently.
             const container = document.getElementById('savedProducts');
-            
-            if (products.length === 0) {
+            if (!container) return;
+            if (!Array.isArray(products) || products.length === 0) {
                 container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">Belum ada produk</div>';
                 return;
             }
-
-            // Sort products by ID descending (newest first)
-            const sortedProducts = [...products].sort((a, b) => b.id - a.id);
-
-            container.innerHTML = sortedProducts.map(product => {
-                // Special handling for service products
-                if (product.isService || product.price === 0) {
-                    return `
-                        <div class="border-2 rounded-lg p-3 hover-lift bg-gradient-to-br from-purple-50 to-purple-100 border-purple-300">
-                            <div class="font-semibold text-sm text-gray-800 truncate mb-1">${product.name}</div>
-                            <div class="text-xs text-purple-600 font-bold mb-1">🔧 JASA</div>
-                            <div class="text-xs text-gray-500 mb-1">Produk Layanan</div>
-                            <div class="text-xs font-semibold mb-1 text-purple-600">
-                                Stok: Unlimited
-                            </div>
-                            <div class="mb-2"></div>
-                            
-                            <div class="flex space-x-1">
-                                <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: 999999})" 
-                                        class="flex-1 bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs font-semibold active-press">
-                                    ➕
-                                </button>
-                                <button onclick="editProduct(${product.id})" 
-                                        class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold active-press">
-                                    ✏️
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                }
-                
-                // Regular product display
-                const stockStatus = product.stock === 0 ? 'critical' : product.stock <= product.minStock ? 'low' : 'ok';
-                const stockClass = stockStatus === 'critical' ? 'stock-critical' : stockStatus === 'low' ? 'stock-low' : 'stock-ok';
-                
-                return `
-                    <div class="border-2 rounded-lg p-3 hover-lift ${stockClass}">
-                        <div class="font-semibold text-sm text-gray-800 truncate mb-1">${product.name}</div>
-                        <div class="text-xs text-green-600 font-bold mb-1">${formatCurrency(product.price)}</div>
-                        ${product.wholesaleMinQty && product.wholesalePrice ? 
-                            `<div class="text-xs text-blue-600 font-semibold mb-1">🏪 ${formatCurrency(product.wholesalePrice)} (${product.wholesaleMinQty}+ pcs)</div>` : 
-                            ''
-                        }
-                        <div class="text-xs text-gray-500 mb-1">Modal: ${formatCurrency(product.modalPrice || 0)}</div>
-                        <div class="text-xs font-semibold mb-1 ${stockStatus === 'critical' ? 'text-red-600' : stockStatus === 'low' ? 'text-yellow-600' : 'text-green-600'}">
-                            Stok: ${product.stock}
-                        </div>
-                        ${product.barcode ? `<div class="text-xs text-gray-400 mb-2">Barcode: ${product.barcode}</div>` : '<div class="mb-2"></div>'}
-                        
-                        <div class="flex space-x-1">
-                            <button onclick="addToCart({id: ${product.id}, name: '${product.name}', price: ${product.price}, stock: ${product.stock}})" 
-                                    class="flex-1 ${product.stock === 0 ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'} text-white px-2 py-1 rounded text-xs font-semibold active-press"
-                                    ${product.stock === 0 ? 'disabled' : ''}>
-                                ${product.stock === 0 ? '❌' : '➕'}
-                            </button>
-                            <button onclick="editProduct(${product.id})" 
-                                    class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold active-press">
-                                ✏️
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
+            const sorted = [...products].sort((a, b) => b.id - a.id);
+            if (productViewMode === 'table') {
+                displayProductsTable(sorted);
+            } else if (productViewMode === 'list') {
+                displayProductsList(sorted);
+            } else if (productViewMode === 'compact') {
+                displayProductsCompact(sorted);
+            } else if (productViewMode === 'dense') {
+                displayProductsDense(sorted);
+            } else {
+                displayProductsGrid(sorted);
+            }
         }
 
         function searchProducts(searchTerm) {
@@ -3877,6 +4679,40 @@ function removeDuplicateProducts() {
             modalEl.classList.add('flex');
             // Attach keyboard shortcuts: Enter saves new product, Escape cancels
             attachModalKeyHandlers(modalEl, saveNewProduct, closeAddProductModal);
+        }
+
+        // Open the Add Product modal prefilled with an existing product's data.
+        // This supports the 'Tambah Cepat' workflow where an operator wants to
+        // create a similar product quickly. The modal uses the same saveNewProduct
+        // handler so saving will create a new product entry.
+        function openAddProductModalPrefilled(productId) {
+            const prod = (Array.isArray(products) ? products.find(p => Number(p.id) === Number(productId)) : null);
+            if (!prod) {
+                showAddProductModal();
+                return;
+            }
+            // Show modal first so inputs exist
+            showAddProductModal();
+            try {
+                const nameEl = document.getElementById('newProductName');
+                const priceEl = document.getElementById('newProductPrice');
+                const modalEl = document.getElementById('newProductModalPrice');
+                const barcodeEl = document.getElementById('newProductBarcode');
+                const stockEl = document.getElementById('newProductStock');
+                const minStockEl = document.getElementById('newProductMinStock');
+                const wholesaleMinEl = document.getElementById('newProductWholesaleMinQty');
+                const wholesalePriceEl = document.getElementById('newProductWholesalePrice');
+                if (nameEl) nameEl.value = prod.name || '';
+                if (priceEl) priceEl.value = prod.price !== undefined ? String(prod.price) : '';
+                if (modalEl) modalEl.value = prod.modalPrice !== undefined ? String(prod.modalPrice) : '';
+                if (barcodeEl) barcodeEl.value = prod.barcode || '';
+                if (stockEl) stockEl.value = prod.stock !== undefined ? String(prod.stock) : '0';
+                if (minStockEl) minStockEl.value = prod.minStock !== undefined ? String(prod.minStock) : '5';
+                if (wholesaleMinEl) wholesaleMinEl.value = prod.wholesaleMinQty !== undefined ? String(prod.wholesaleMinQty) : '';
+                if (wholesalePriceEl) wholesalePriceEl.value = prod.wholesalePrice !== undefined ? String(prod.wholesalePrice) : '';
+            } catch (err) {
+                console.warn('Failed to prefill add product modal:', err);
+            }
         }
 
         function closeAddProductModal() {
@@ -4355,7 +5191,7 @@ function removeDuplicateProducts() {
             // Attach keyboard shortcuts: Enter processes payment, Escape cancels
             attachModalKeyHandlers(modal, processUnifiedPayment, closeUnifiedPaymentModal, ['unifiedPaymentAmount','unifiedCustomerName']);
 
-            setTimeout(() => document.getElementById('unifiedPaymentAmount').focus(), 100);
+            setTimeout(() => safeFocus(document.getElementById('unifiedPaymentAmount')), 100);
         }
 
         function closeUnifiedPaymentModal() {
@@ -4947,8 +5783,10 @@ function removeDuplicateProducts() {
                                 
                                 if (isDebtPayment) {
                                     return `
-                                        <tr class="border-b border-gray-100 hover:bg-blue-50">
-                                            <td class="px-4 py-3 font-mono text-sm">${transaction.id}</td>
+                                        <tr data-action="tx-detail" data-txid="${transaction.id}" class="border-b border-gray-100 hover:bg-blue-50 cursor-pointer">
+                                            <td class="px-4 py-3 font-mono text-sm" data-action="tx-detail" data-txid="${transaction.id}">
+                                                <button type="button" data-action="tx-detail" data-txid="${transaction.id}" class="w-full text-left font-mono text-sm text-blue-700 hover:underline">${transaction.id}</button>
+                                            </td>
                                             <td class="px-4 py-3 text-sm">${date.toLocaleDateString('id-ID')}<br><span class="text-xs text-gray-500">${date.toLocaleTimeString('id-ID')}</span></td>
                                             <td class="px-4 py-3 text-sm font-semibold text-blue-600">${transaction.customerName}</td>
                                             <td class="px-4 py-3 text-sm text-blue-600">Pembayaran Hutang</td>
@@ -4961,7 +5799,8 @@ function removeDuplicateProducts() {
                                                 ${((transaction.remainingDebt ?? transaction.debt) > 0) ? `<br><span class="text-xs text-red-600">Sisa: ${formatCurrency(transaction.remainingDebt ?? transaction.debt)}</span>` : '<br><span class="text-xs text-green-600">Lunas</span>'}
                                             </td>
                                             <td class="px-4 py-3 text-center">
-                                                <button onclick="printDebtPaymentReceipt(${JSON.stringify(transaction).replace(/"/g, '&quot;')})" 
+                                                <button data-action="tx-detail" data-txid="${transaction.id}" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-2 py-1 rounded text-xs mr-1">Detail</button>
+                                                <button data-action="print-debt" data-txid="${transaction.id}" 
                                                         class="bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs">
                                                     🖨️
                                                 </button>
@@ -4971,8 +5810,10 @@ function removeDuplicateProducts() {
                                 }
                                 
                                 return `
-                                    <tr class="border-b border-gray-100 hover:bg-gray-50">
-                                        <td class="px-4 py-3 font-mono text-sm">${transaction.id}</td>
+                                    <tr data-action="tx-detail" data-txid="${transaction.id}" class="border-b border-gray-100 hover:bg-gray-50 cursor-pointer">
+                                        <td class="px-4 py-3 font-mono text-sm" data-action="tx-detail" data-txid="${transaction.id}">
+                                            <button type="button" data-action="tx-detail" data-txid="${transaction.id}" class="w-full text-left font-mono text-sm text-blue-700 hover:underline">${transaction.id}</button>
+                                        </td>
                                         <td class="px-4 py-3 text-sm">${date.toLocaleDateString('id-ID')}<br><span class="text-xs text-gray-500">${date.toLocaleTimeString('id-ID')}</span></td>
                                         <td class="px-4 py-3 text-sm ${isPartial ? 'font-semibold text-orange-600' : 'text-gray-500'}">
                                             ${isPartial ? transaction.customerName : 'Umum'}
@@ -4995,11 +5836,12 @@ function removeDuplicateProducts() {
                                                 `<span class="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-semibold">✅ Lunas</span><br><span class="text-xs text-green-600">Kembalian: ${formatCurrency(transaction.change || 0)}</span>`
                                             }
                                         </td>
-                                        <td class="px-4 py-3 text-center">
-                                            <button onclick="printThermalReceipt(${JSON.stringify(transaction).replace(/"/g, '&quot;')})" 
-                                                    class="bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs">
-                                                🖨️
-                                            </button>
+                                            <td class="px-4 py-3 text-center">
+                                                <button data-action="tx-detail" data-txid="${transaction.id}" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-2 py-1 rounded text-xs mr-1">Detail</button>
+                                                <button data-action="print-thermal" data-txid="${transaction.id}" 
+                                                        class="bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs">
+                                                    🖨️
+                                                </button>
                                         </td>
                                     </tr>
                                 `;
@@ -5141,7 +5983,7 @@ function removeDuplicateProducts() {
                                                 ${((transaction.remainingDebt ?? transaction.debt) > 0) ? `<br><span class="text-xs text-red-600">Sisa: ${formatCurrency(transaction.remainingDebt ?? transaction.debt)}</span>` : '<br><span class="text-xs text-green-600">Lunas</span>'}
                                             </td>
                                             <td class="px-4 py-3 text-center">
-                                                <button onclick="printDebtPaymentReceipt(${JSON.stringify(transaction).replace(/"/g, '&quot;')})" 
+                                                <button data-action="print-debt" data-txid="${transaction.id}"
                                                         class="bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs">
                                                     🖨️
                                                 </button>
@@ -5176,7 +6018,7 @@ function removeDuplicateProducts() {
                                             }
                                         </td>
                                         <td class="px-4 py-3 text-center">
-                                            <button onclick="printThermalReceipt(${JSON.stringify(transaction).replace(/"/g, '&quot;')})" 
+                                            <button data-action="print-thermal" data-txid="${transaction.id}"
                                                     class="bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs">
                                                 🖨️
                                             </button>
@@ -5248,7 +6090,7 @@ function removeDuplicateProducts() {
                                                 ${((transaction.remainingDebt ?? transaction.debt) > 0) ? `<br><span class="text-xs text-red-600">Sisa: ${formatCurrency(transaction.remainingDebt ?? transaction.debt)}</span>` : '<br><span class="text-xs text-green-600">Lunas</span>'}
                                             </td>
                                             <td class="px-4 py-3 text-center">
-                                                <button onclick="printDebtPaymentReceipt(${JSON.stringify(transaction).replace(/"/g, '&quot;')})" 
+                                                <button data-action="print-debt" data-txid="${transaction.id}"
                                                         class="bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs">
                                                     🖨️
                                                 </button>
@@ -5283,7 +6125,7 @@ function removeDuplicateProducts() {
                                             }
                                         </td>
                                         <td class="px-4 py-3 text-center">
-                                            <button onclick="printThermalReceipt(${JSON.stringify(transaction).replace(/"/g, '&quot;')})" 
+                                            <button data-action="print-thermal" data-txid="${transaction.id}"
                                                     class="bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs">
                                                 🖨️
                                             </button>
@@ -5299,6 +6141,8 @@ function removeDuplicateProducts() {
 
         // Analysis functions
         function updateAnalysis() {
+            // Preserve scroll position to avoid viewport jumping when updating analysis
+            const _prevScrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
             const today = new Date();
             // If there are no transactions for today but there is historical data,
             // automatically show a broader period instead of leaving the analysis empty.  This
@@ -5399,6 +6243,8 @@ function removeDuplicateProducts() {
                 todayBtn2.classList.remove('bg-gray-300', 'text-gray-700');
                 todayBtn2.classList.add('bg-green-500', 'text-white');
             }
+            // Restore previous scroll position after DOM updates
+            try { window.scrollTo({ top: _prevScrollY }); } catch (e) { window.scrollTo(0, _prevScrollY); }
         }
 
         function updateProductAnalysisTable(transactions) {
@@ -5459,15 +6305,25 @@ function removeDuplicateProducts() {
         }
 
         function filterAnalysis(period) {
+            // Preserve current scroll position to avoid unwanted page jumps
+            // when the analysis table or navigation controls are updated.
+            const _prevScrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+
             // Update button styles
             ['filterToday', 'filterWeek', 'filterMonth', 'filterAll'].forEach(id => {
                 const btn = document.getElementById(id);
-                btn.classList.remove('bg-green-500', 'text-white');
-                btn.classList.add('bg-gray-300', 'text-gray-700');
+                if (btn) {
+                    btn.classList.remove('bg-green-500', 'text-white');
+                    btn.classList.add('bg-gray-300', 'text-gray-700');
+                }
             });
             
-            document.getElementById('filter' + period.charAt(0).toUpperCase() + period.slice(1)).classList.remove('bg-gray-300', 'text-gray-700');
-            document.getElementById('filter' + period.charAt(0).toUpperCase() + period.slice(1)).classList.add('bg-green-500', 'text-white');
+            const targetBtnId = 'filter' + period.charAt(0).toUpperCase() + period.slice(1);
+            const targetBtn = document.getElementById(targetBtnId);
+            if (targetBtn) {
+                targetBtn.classList.remove('bg-gray-300', 'text-gray-700');
+                targetBtn.classList.add('bg-green-500', 'text-white');
+            }
 
             // Reset the analysis date offset whenever a period filter is selected.
             // Show or hide the previous/next day navigation controls depending on whether
@@ -5475,12 +6331,24 @@ function removeDuplicateProducts() {
             analysisDateOffset = 0;
             if (period === 'today') {
                 toggleAnalysisNavigation(true);
+                toggleAnalysisMonthNavigation(false);
                 const label = document.getElementById('analysisDateLabel');
                 if (label) {
                     label.textContent = formatDateForLabel(new Date());
                 }
+            } else if (period === 'month') {
+                // show month navigation and reset month offset
+                analysisMonthOffset = 0;
+                toggleAnalysisNavigation(false);
+                toggleAnalysisMonthNavigation(true);
+                const mLabel = document.getElementById('analysisMonthLabel');
+                if (mLabel) {
+                    const now = new Date();
+                    mLabel.textContent = now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+                }
             } else {
                 toggleAnalysisNavigation(false);
+                toggleAnalysisMonthNavigation(false);
             }
 
             const now = new Date();
@@ -5498,8 +6366,18 @@ function removeDuplicateProducts() {
                     filteredTransactions = salesData.filter(t => new Date(t.timestamp) >= weekAgo);
                     break;
                 case 'month':
-                    const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-                    filteredTransactions = salesData.filter(t => new Date(t.timestamp) >= monthAgo);
+                    // When filtering by "month", include only transactions from the current
+                    // calendar month.  The previous implementation subtracted one month
+                    // from the current date, effectively showing the last 30 days rather
+                    // than the current month to date.  To correctly reflect "bulan ini",
+                    // compute the first day of the current month and include all
+                    // transactions on or after that date.
+                    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                    filteredTransactions = salesData.filter(t => {
+                        if (!t.timestamp) return false;
+                        const transactionDate = new Date(t.timestamp);
+                        return transactionDate >= startOfMonth;
+                    });
                     break;
                 case 'all':
                     filteredTransactions = [...salesData];
@@ -5557,6 +6435,37 @@ function removeDuplicateProducts() {
             }
 
             updateProductAnalysisTable(filteredTransactions);
+
+            // Prevent focus-induced scrolling: if a control has focus (for
+            // example a button or an input), blur it so the browser doesn't
+            // scroll the element into view when layout changes.
+            try {
+                if (document.activeElement && typeof document.activeElement.blur === 'function') {
+                    document.activeElement.blur();
+                }
+            } catch (e) {
+                // ignore
+            }
+
+            // Restore scroll position after two animation frames. Performing the
+            // scroll in a nested requestAnimationFrame ensures the browser has
+            // completed layout & paint caused by our DOM updates, which prevents
+            // some browsers (notably mobile) from jumping the viewport.
+            try {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        try {
+                            window.scrollTo({ top: _prevScrollY });
+                        } catch (e) {
+                            // Fallback for older browsers
+                            window.scrollTo(0, _prevScrollY);
+                        }
+                    });
+                });
+            } catch (e) {
+                // As a last resort, do a direct scroll
+                try { window.scrollTo({ top: _prevScrollY }); } catch (err) { window.scrollTo(0, _prevScrollY); }
+            }
         }
 
         // Reports
@@ -5746,7 +6655,7 @@ function removeDuplicateProducts() {
             // Attach keyboard shortcuts: Enter processes debt payment, Esc cancels
             attachModalKeyHandlers(modal, processDebtPayment, closeDebtPaymentModal, ['debtPaymentAmount']);
             
-            setTimeout(() => document.getElementById('debtPaymentAmount').focus(), 100);
+            setTimeout(() => safeFocus(document.getElementById('debtPaymentAmount')), 100);
         }
 
         function closeDebtPaymentModal() {
@@ -7218,6 +8127,163 @@ function updateScanToggleButton() {
 function toggleGlobalScanner() {
     globalScannerEnabled = !globalScannerEnabled;
     updateScanToggleButton();
+    // When enabling global scanner standby, focus the hidden scan capture
+    // input and start its dedicated listener.  When disabling, stop it so
+    // operators can type freely without the capture input intercepting keys.
+    if (globalScannerEnabled) {
+        startScanCapture();
+    } else {
+        stopScanCapture();
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Hidden scan-capture input helpers
+//
+// We create a small, off-screen but focusable input (`#scanCapture`) that will
+// be focused whenever scan mode is ON. USB scanners that emulate keyboards
+// will reliably send their keystrokes to this element, avoiding race
+// conditions with other UI elements. The capture handler accumulates keys and
+// dispatches the barcode when Enter is received.
+
+let _scanCaptureEl = null;
+let _scanCaptureListener = null;
+let _scanCaptureBlurGuard = null;
+let _scanCaptureBuffer = '';
+let _scanCaptureStart = null;
+const SCAN_CAPTURE_DURATION_THRESHOLD = 1200; // ms
+
+function ensureScanCaptureElement() {
+    if (_scanCaptureEl) return _scanCaptureEl;
+    _scanCaptureEl = document.getElementById('scanCapture');
+    return _scanCaptureEl;
+}
+
+function startScanCapture() {
+    const el = ensureScanCaptureElement();
+    if (!el) return;
+    // Clear any previous buffer state
+    _scanCaptureBuffer = '';
+    _scanCaptureStart = null;
+
+    // Attach keydown listener only once
+    if (!_scanCaptureListener) {
+        _scanCaptureListener = function(event) {
+            // Ignore modifier keys
+            if (event.altKey || event.ctrlKey || event.metaKey) return;
+            const key = event.key;
+            const now = Date.now();
+            if (typeof SCAN_DEBUG !== 'undefined' && SCAN_DEBUG) {
+                try {
+                    console.debug(`[SCAN-CAP][ts=${now}] key='${key}' bufferBefore='${_scanCaptureBuffer}'`);
+                } catch (e) { /* ignore debug errors */ }
+            }
+            // Ignore raw modifier key presses that some scanners emit separately
+            // (for example 'Shift' sent as its own keydown).  Do not treat these
+            // as delimiters for the scan buffer — simply ignore them so the
+            // surrounding printable characters are preserved.
+            if (key === 'Shift' || key === 'CapsLock' || key === 'AltGraph') {
+                if (typeof SCAN_DEBUG !== 'undefined' && SCAN_DEBUG) {
+                    try { console.debug(`[SCAN-CAP][ts=${now}] ignoring modifier key='${key}'`); } catch (e) {}
+                }
+                return;
+            }
+            if (_scanCaptureStart && now - _scanCaptureStart > SCAN_CAPTURE_DURATION_THRESHOLD) {
+                if (typeof SCAN_DEBUG !== 'undefined' && SCAN_DEBUG) console.debug(`[SCAN-CAP][ts=${now}] buffer timeout (${now - _scanCaptureStart}ms) -> clearing buffer`);
+                _scanCaptureBuffer = '';
+                _scanCaptureStart = null;
+            }
+            if (key === 'Enter') {
+                if (_scanCaptureBuffer.length > 0) {
+                    const duration = _scanCaptureStart ? (now - _scanCaptureStart) : 0;
+                    // Accept even if duration is a bit larger; hardware may vary
+                    if (duration <= SCAN_CAPTURE_DURATION_THRESHOLD) {
+                        const code = _scanCaptureBuffer;
+                        if (typeof SCAN_DEBUG !== 'undefined' && SCAN_DEBUG) console.debug(`[SCAN-CAP][ts=${now}] ENTER detected -> dispatching code='${code}' duration=${duration}ms`);
+                        _scanCaptureBuffer = '';
+                        _scanCaptureStart = null;
+                        // Prevent form submit or other default actions
+                        event.preventDefault();
+                        handleGlobalScannedBarcode(code);
+                        return;
+                    }
+                }
+                _scanCaptureBuffer = '';
+                _scanCaptureStart = null;
+                return;
+            }
+            // Accept printable characters (include more symbols commonly found in barcodes)
+            if (key && key.length === 1) {
+                if (!_scanCaptureStart) _scanCaptureStart = now;
+                _scanCaptureBuffer += key;
+                if (typeof SCAN_DEBUG !== 'undefined' && SCAN_DEBUG) {
+                    try { console.debug(`[SCAN-CAP][ts=${now}] appended '${key}' -> bufferNow='${_scanCaptureBuffer}'`); } catch (e) {}
+                }
+                return;
+            }
+            // Reset on other keys
+            if (typeof SCAN_DEBUG !== 'undefined' && SCAN_DEBUG) console.debug(`[SCAN-CAP][ts=${now}] non-printable key -> clearing buffer`);
+            _scanCaptureBuffer = '';
+            _scanCaptureStart = null;
+        };
+        el.addEventListener('keydown', _scanCaptureListener);
+    }
+
+    // Blur guard: if the input loses focus while scan mode is active, refocus it.
+    // Do not refocus if the user intentionally focused a text input/textarea
+    // or other editable element (this allows manual typing in #barcodeInput).
+    if (!_scanCaptureBlurGuard) {
+        _scanCaptureBlurGuard = function() {
+            // Small timeout to avoid fighting other intentional focus changes
+            setTimeout(() => {
+                try {
+                    const active = document.activeElement;
+                    // If scan mode still enabled and capture element not focused
+                    if (globalScannerEnabled && active !== el) {
+                        // If the current active element is a text input / textarea / contentEditable,
+                        // assume the user wants to type there and do not steal focus back to the capture.
+                        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
+                            if (typeof SCAN_DEBUG !== 'undefined' && SCAN_DEBUG) console.debug(`[SCAN-CAP][ts=${Date.now()}] blur detected but user is typing in ${active.tagName}#${active.id || ''} - not refocusing`);
+                            return;
+                        }
+                        if (typeof SCAN_DEBUG !== 'undefined' && SCAN_DEBUG) console.debug(`[SCAN-CAP][ts=${Date.now()}] blur detected - refocusing capture element`);
+                        try { safeFocus(el); } catch (e) { /* ignore */ }
+                    }
+                } catch (e) {
+                    // Safely ignore errors from accessing activeElement
+                }
+            }, 20);
+        };
+        el.addEventListener('blur', _scanCaptureBlurGuard);
+    }
+
+    // Focus immediately only if the user is not currently focused on an input
+    // element. This prevents the capture from stealing focus when operator
+    // actively types into #barcodeInput.
+    try {
+        const activeNow = document.activeElement;
+        if (!(activeNow && (activeNow.tagName === 'INPUT' || activeNow.tagName === 'TEXTAREA' || activeNow.isContentEditable))) {
+            safeFocus(el);
+        } else {
+            if (typeof SCAN_DEBUG !== 'undefined' && SCAN_DEBUG) console.debug('[SCAN-CAP] not focusing capture because an input is active');
+        }
+    } catch (e) { /* ignore */ }
+}
+
+function stopScanCapture() {
+    const el = ensureScanCaptureElement();
+    if (!el) return;
+    if (_scanCaptureListener) {
+        el.removeEventListener('keydown', _scanCaptureListener);
+        _scanCaptureListener = null;
+    }
+    if (_scanCaptureBlurGuard) {
+        el.removeEventListener('blur', _scanCaptureBlurGuard);
+        _scanCaptureBlurGuard = null;
+    }
+    _scanCaptureBuffer = '';
+    _scanCaptureStart = null;
+    try { el.blur(); } catch (e) { /* ignore */ }
 }
 
 // Expose the toggle functions globally so they can be called from inline
@@ -9192,6 +10258,97 @@ function applyTheme(idx) {
 }
 // Expose globally for inline onclick handlers
 window.applyTheme = applyTheme;
+
+/**
+ * Apply a mobile-only theme by key. This injects a <style id="activeMobileTheme"> element
+ * containing CSS wrapped in a mobile media query so it only affects small viewports.
+ * The selected key is persisted to localStorage under 'mobileThemeKey'.
+ * @param {string} key
+ */
+function applyMobileTheme(key) {
+    if (!key) return;
+    // Remove existing mobile theme
+    const old = document.getElementById('activeMobileTheme');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+
+    // Build CSS for a few lightweight mobile theme variants. Keep selectors conservative
+    // to avoid interfering with desktop styles. Wrap everything in a max-width media query.
+    let css = '';
+    if (key === 'mobile-dark-1') {
+        // Deep navy with emerald accents — good for low-light POS counters
+        css = `@media (max-width:640px) {
+            :root { --mobile-bg: #031022; --mobile-surface: #071426; --accent: #10b981; --muted: #97b3c8; }
+            body { background: linear-gradient(180deg,var(--mobile-bg), #061426) !important; color: #e6f2f8 !important; }
+            #navWrapper, #navContainer { background: rgba(6,12,22,0.92) !important; border-color: rgba(16,185,129,0.06) !important; }
+            #floatingCart { background: rgba(6,12,22,0.95); color: #e6f2f8; }
+            #totalPayNotice { background: linear-gradient(90deg, rgba(16,185,129,0.18), rgba(6,12,22,0.85)); color: var(--accent); border: 1px solid rgba(16,185,129,0.12); }
+            .scanner-card, .card { background: rgba(6,10,18,0.55); }
+            a, button, .btn { color: var(--accent) !important; }
+            .text-muted { color: var(--muted) !important; }
+        }`;
+    } else if (key === 'mobile-dark-2') {
+        // Charcoal + cyan accent — higher contrast, modern look
+        css = `@media (max-width:640px) {
+            :root { --mobile-bg: #0b1216; --mobile-surface: #0f1720; --accent: #06b6d4; --muted: #9fb9c6; }
+            body { background: radial-gradient(circle at 10% 10%, rgba(6,12,20,0.85), var(--mobile-bg)) !important; color: #e9f6fb !important; }
+            #navWrapper, #navContainer { background: rgba(12,18,24,0.94) !important; border-color: rgba(6,182,212,0.06) !important; }
+            #floatingCart { background: rgba(12,18,24,0.96); color: #e9f6fb; }
+            #totalPayNotice { background: linear-gradient(90deg, rgba(6,182,212,0.12), rgba(8,14,20,0.9)); color: var(--accent); border: 1px solid rgba(6,182,212,0.14); }
+            .scanner-card, .card { background: rgba(8,12,16,0.6); }
+            .text-muted { color: var(--muted) !important; }
+        }`;
+    } else if (key === 'mobile-light-1') {
+        // Soft warm light: off-white + warm-teal accents for calm, readable UI
+        css = `@media (max-width:640px) {
+            :root { --mobile-bg: #fbfbf9; --surface: #ffffff; --accent: #0ea5a4; --muted: #556b6b; }
+            body { background: linear-gradient(180deg,var(--mobile-bg), #ffffff) !important; color: #072020 !important; }
+            #navWrapper, #navContainer { background: #ffffff !important; border-color: rgba(7,32,32,0.04) !important; }
+            #floatingCart { background: #ffffff; color: #072020; }
+            #totalPayNotice { background: linear-gradient(90deg,#06b6b4,#0ea5a4); color: #fff; border: 1px solid rgba(6,166,164,0.12); }
+            .scanner-card, .card { background: #ffffff; color: #072020; box-shadow: 0 6px 18px rgba(2,6,23,0.04); }
+            .text-muted { color: var(--muted) !important; }
+        }`;
+    } else if (key === 'mobile-light-2') {
+        // Crisp clean light: bright white background with mint-cyan accent
+        css = `@media (max-width:640px) {
+            :root { --mobile-bg: #ffffff; --surface: #ffffff; --accent: #06b6d4; --muted: #4b6b74; }
+            body { background: var(--mobile-bg) !important; color: #031018 !important; }
+            #navWrapper, #navContainer { background: #ffffff !important; border-color: rgba(3,16,24,0.04) !important; }
+            #floatingCart { background: #ffffff; color: #031018; }
+            #totalPayNotice { background: linear-gradient(90deg,#06b6d4,#0891b2); color: #062b35; border: 1px solid rgba(6,182,212,0.10); }
+            .scanner-card, .card { background: #ffffff; }
+            .text-muted { color: var(--muted) !important; }
+        }`;
+    } else {
+        // Unknown key — don't apply
+        return;
+    }
+
+    const style = document.createElement('style');
+    style.id = 'activeMobileTheme';
+    style.textContent = css;
+    document.head.appendChild(style);
+
+    try {
+        localStorage.setItem('mobileThemeKey', key);
+    } catch (e) {
+        // ignore storage errors
+    }
+    // Hide the theme menu after applying
+    const menu = document.getElementById('themeMenu');
+    if (menu) menu.classList.add('hidden');
+}
+window.applyMobileTheme = applyMobileTheme;
+
+/**
+ * Remove any mobile theme that was applied and clear persisted choice.
+ */
+function removeMobileTheme() {
+    const old = document.getElementById('activeMobileTheme');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    try { localStorage.removeItem('mobileThemeKey'); } catch (e) {}
+}
+window.removeMobileTheme = removeMobileTheme;
 
 // -----------------------------------------------------------------------------
 // Login functionality
