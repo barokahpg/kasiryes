@@ -1180,6 +1180,52 @@ function moveHistoryDate(direction) {
 window.moveHistoryDate = moveHistoryDate;
 
 /**
+ * Update the history filter based on button clicks.
+ *
+ * The original implementation used a native <select> element for the history
+ * filter.  In some environments (notably some PWA contexts) the drop‑down
+ * menu could not be opened via mouse click.  To improve usability the
+ * select has been replaced with a group of buttons in index.html.  This
+ * function updates a hidden input (#historyFilter) with the new value,
+ * toggles button styles to indicate which filter is active, and calls
+ * filterTransactionHistory() to refresh the view.
+ *
+ * @param {string} value One of 'all', 'today', 'week', 'month', 'full' or 'partial'.
+ */
+function setHistoryFilter(value) {
+    try {
+        const input = document.getElementById('historyFilter');
+        if (input) {
+            input.value = value;
+        }
+        // Highlight the active filter button and de‑highlight others
+        const keys = ['all', 'today', 'week', 'month', 'full', 'partial'];
+        keys.forEach(key => {
+            const btn = document.getElementById(`filterHistory-${key}`);
+            if (!btn) return;
+            if (key === value) {
+                btn.classList.add('bg-green-500', 'text-white');
+                btn.classList.remove('bg-gray-300', 'text-gray-700');
+            } else {
+                btn.classList.add('bg-gray-300', 'text-gray-700');
+                btn.classList.remove('bg-green-500', 'text-white');
+            }
+        });
+    } catch (err) {
+        console.warn('Error setting history filter:', err);
+    }
+    // Refresh the history based on the new filter
+    try {
+        filterTransactionHistory();
+    } catch (_) {
+        // ignore if function is not yet defined
+    }
+}
+
+// Expose setHistoryFilter globally so it can be invoked from inline HTML
+window.setHistoryFilter = setHistoryFilter;
+
+/**
  * Update the analysis metrics and product table for a specific date.
  * This bypasses the built‑in period filters and always treats the analysis as if
  * "Hari Ini" were selected, but for the chosen date.  It also updates the

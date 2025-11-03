@@ -1,27 +1,83 @@
 /*
  * Service Worker for KasirYes
  *
- * This service worker is responsible for receiving background sync events
- * triggered by the application via the SyncManager API.  When a sync
- * event fires (e.g. when network connectivity returns), the service
- * worker broadcasts a message to all connected clients (browser tabs)
- * instructing them to process any queued pending deltas.  The actual
- * synchronisation logic remains in the main application code, which
- * responds to the 'sync' message by calling processPendingDeltas().
+ * In addition to handling background sync events, this service worker
+ * implements a basic offline caching strategy.  During installation
+ * it pre‑caches all of the core application assets (HTML, CSS, JS,
+ * manifest and icons).  During fetch events it attempts to serve
+ * cached resources first and falls back to the network if necessary.
+ * If both cache and network are unavailable, a simple fallback
+ * response is returned.  This enables the POS application to load
+ * and function even when the device is temporarily offline.
  */
 
+// Define a versioned cache name so that future updates can cleanly
+// invalidate old caches by changing this string.  If you update
+// STATIC_ASSETS or make changes to cached files, bump the version.
+const CACHE_NAME = 'kasiryes-cache-v1';
+
+// List of resources to pre‑cache.  These are the assets required
+// to load the application shell offline.  Paths are relative to
+// the origin when served via localhost or another web server.
+const STATIC_ASSETS = [
+    '/',
+    '/index.html',
+    '/style.css',
+    '/script.js',
+    '/manifest.json',
+    '/icons/icon-192.png',
+    '/icons/icon-512.png'
+];
+
 self.addEventListener('install', event => {
-    // Skip waiting so that the newly installed service worker becomes
-    // active immediately.  Without this call, a new service worker
-    // waits until existing clients are closed before it takes control.
+    // Pre‑cache the application shell during installation.  Once
+    // caching is complete, immediately activate the service worker
+    // without waiting for old versions to close.
+    event.waitUntil(
+        caches.open(CACHE_NAME).then(cache => {
+            return cache.addAll(STATIC_ASSETS);
+        }).catch(err => {
+            // If caching fails, still proceed with installation.
+            console.warn('Service Worker: Failed to pre‑cache assets', err);
+        })
+    );
     self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
-    // Claim control of any existing clients as soon as the service
-    // worker activates.  This ensures that pages loaded before the
-    // service worker was installed can still receive messages.
-    event.waitUntil(self.clients.claim());
+    // Delete any old caches that don't match the current CACHE_NAME.  This
+    // prevents stale resources from persisting after upgrades.  Then
+    // immediately take control of all clients.
+    event.waitUntil((async () => {
+        const cacheNames = await caches.keys();
+        await Promise.all(
+            cacheNames.filter(name => name !== CACHE_NAME).map(name => caches.delete(name))
+        );
+        await self.clients.claim();
+    })());
+});
+
+// Intercept network requests and attempt to serve them from cache.
+// If the resource is not in cache, fall back to the network.  If
+// offline and the resource isn't cached, return a minimal fallback.
+self.addEventListener('fetch', event => {
+    // We only want to handle GET requests over HTTP(S).  Non‑GET
+    // requests and requests to other protocols (such as chrome‑extension:)
+    // should bypass the service worker.
+    if (event.request.method !== 'GET' || !event.request.url.startsWith(self.location.origin)) {
+        return;
+    }
+    event.respondWith(
+        caches.match(event.request).then(cachedResponse => {
+            if (cachedResponse) {
+                return cachedResponse;
+            }
+            return fetch(event.request).catch(() => {
+                // If both cache and network fail, fallback to the root page.
+                return caches.match('/');
+            });
+        })
+    );
 });
 
 self.addEventListener('sync', event => {

@@ -3,10 +3,15 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Kasir Warung - Sistem POS</title>
+        <title>Kasir - Toko Barokah</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <!-- Link external stylesheet for custom styles -->
         <link rel="stylesheet" href="style.css">
+        <!-- Web App Manifest for PWA installation -->
+        <link rel="manifest" href="manifest.json">
+        <!-- Favicon/icon definitions -->
+        <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+        <link rel="apple-touch-icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
         <style>
             body {
                 box-sizing: border-box;
@@ -626,18 +631,29 @@
                             </h2>
 
                             <!-- Filter Options -->
-                            <div class="flex items-center space-x-2">
-                                <select id="historyFilter" onchange="filterTransactionHistory()" class="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:border-indigo-500 focus:outline-none">
-                                    <option value="all">Semua</option>
-                                    <!-- Set 'Hari Ini' as the default selected filter so that when the user opens the history tab,
-                                         today's transactions are displayed by default.  This aligns the default view with
-                                         user expectations that the most recent sales are shown first. -->
-                                    <option value="today" selected>Hari Ini</option>
-                                    <option value="week">Minggu Ini</option>
-                                    <option value="month">Bulan Ini</option>
-                                    <option value="full">Lunas</option>
-                                    <option value="partial">Hutang</option>
-                                </select>
+                            <!--
+                                The original implementation used a native <select> element for filtering
+                                transaction history.  In some browsers and PWA environments the drop‑down
+                                menu could not be opened via mouse click.  To improve accessibility and
+                                ensure the filter works consistently across all platforms, the select has
+                                been replaced with a group of buttons.  A hidden input (historyFilter)
+                                stores the current filter value to be consumed by filterTransactionHistory().
+                            -->
+                            <div class="flex flex-wrap items-center space-x-2" id="historyFilterButtons">
+                                <!-- Hidden input to store the selected filter -->
+                                <input type="hidden" id="historyFilter" value="today">
+                                <button type="button" id="filterHistory-all" onclick="setHistoryFilter('all')"
+                                    class="px-3 py-1 border border-gray-300 rounded-lg text-sm bg-gray-300 text-gray-700">Semua</button>
+                                <button type="button" id="filterHistory-today" onclick="setHistoryFilter('today')"
+                                    class="px-3 py-1 border border-gray-300 rounded-lg text-sm bg-green-500 text-white">Hari Ini</button>
+                                <button type="button" id="filterHistory-week" onclick="setHistoryFilter('week')"
+                                    class="px-3 py-1 border border-gray-300 rounded-lg text-sm bg-gray-300 text-gray-700">Minggu Ini</button>
+                                <button type="button" id="filterHistory-month" onclick="setHistoryFilter('month')"
+                                    class="px-3 py-1 border border-gray-300 rounded-lg text-sm bg-gray-300 text-gray-700">Bulan Ini</button>
+                                <button type="button" id="filterHistory-full" onclick="setHistoryFilter('full')"
+                                    class="px-3 py-1 border border-gray-300 rounded-lg text-sm bg-gray-300 text-gray-700">Lunas</button>
+                                <button type="button" id="filterHistory-partial" onclick="setHistoryFilter('partial')"
+                                    class="px-3 py-1 border border-gray-300 rounded-lg text-sm bg-gray-300 text-gray-700">Hutang</button>
                             </div>
                         </div>
 
