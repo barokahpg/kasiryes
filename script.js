@@ -1838,7 +1838,7 @@ function processScannedCode(rawCode) {
 // redeploy your Apps Script as a web app whenever this URL changes.
 // Updated Apps Script URL provided by the user (latest deployment). This URL is used for all
 // communication between the POS application and Google Sheets (importing/exporting data and login).
-const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx2XKcYYX-qPpIRqfJP66FLNP_dfbmiN1il_Gv_C9zISBpyG7ELUXGVerD0DtxQeG5ePA/exec';
+const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby0sIYymZUVJsCDli6jpehKEImLN40hG8h4j6NDK3XrYLtJhqL1lNP6hQ6YHBXobJ8/exec';
 
 
         // Global state for products tab view mode
