@@ -1838,7 +1838,7 @@ function processScannedCode(rawCode) {
 // redeploy your Apps Script as a web app whenever this URL changes.
 // Updated Apps Script URL provided by the user (latest deployment). This URL is used for all
 // communication between the POS application and Google Sheets (importing/exporting data and login).
-const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby0sIYymZUVJsCDli6jpehKEImLN40hG8h4j6NDK3XrYLtJhqL1lNP6hQ6YHBXobJ8/exec';
+const GOOGLE_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx2XKcYYX-qPpIRqfJP66FLNP_dfbmiN1il_Gv_C9zISBpyG7ELUXGVerD0DtxQeG5ePA/exec';
 
 
         // Global state for products tab view mode
@@ -5100,6 +5100,25 @@ function removeDuplicateProducts() {
             }
             // Update view buttons to reflect current mode after re-render
             updateViewButtons();
+
+            // Reapply any active product search filter after an edit.
+            // Without this, the product list resets to show all products,
+            // which is confusing when a search term was in use.  Here we look
+            // up the current search input value and call searchProducts() if
+            // there is a non-empty search term.  This ensures the filtered
+            // results remain visible after updating a product.
+            try {
+                const searchEl = document.getElementById('productSearchInput');
+                if (searchEl) {
+                    const term = searchEl.value ? searchEl.value.trim() : '';
+                    if (term) {
+                        // Re-run the search to filter the updated product list.
+                        searchProducts(term);
+                    }
+                }
+            } catch (err) {
+                console.warn('Failed to reapply product search filter after edit:', err);
+            }
             // Refresh the scanner tab's cart table
             displayScannerProductTable();
             // Close the edit modal
